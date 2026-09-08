@@ -1,0 +1,17 @@
+# Binary
+nginxplorer
+
+# Database
+*.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test
+coverage.out
+*.test
