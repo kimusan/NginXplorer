@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nginxplorer-v1';
+const CACHE_NAME = 'nginxplorer-v2';
 const STATIC_ASSETS = [
     '/',
     '/index.html',

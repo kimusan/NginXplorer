@@ -396,10 +396,20 @@ func (s *Store) GetHistory(vhost string, duration time.Duration) *VHostHistory {
 			Timestamp: ts,
 			Value:     float64(bucket.BytesOut),
 		})
+
+		latMs := 0.0
+		if bucket.Requests > 0 {
+			latMs = (bucket.TotalLatency / float64(bucket.Requests)) * 1000
+		}
+		history.LatencyP95 = append(history.LatencyP95, HistoryPoint{
+			Timestamp: ts,
+			Value:     latMs,
+		})
 	}
 
 	// Reverse to chronological order
 	reverseHistoryPoints(history.RPS)
+	reverseHistoryPoints(history.LatencyP95)
 	reverseHistoryPoints(history.ErrorRate)
 	reverseHistoryPoints(history.Bandwidth)
 

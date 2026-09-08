@@ -90,6 +90,13 @@ function initCharts() {
     const rpsOpts = {
         width: initialWidth,
         height: initialHeight,
+        scales: {
+            x: { time: true },
+            y: {
+                auto: true,
+                range: (u, min, max) => [0, Math.max(max * 1.15, 1)]
+            }
+        },
         series: [
             {},
             {
@@ -97,6 +104,7 @@ function initCharts() {
                 stroke: "#3b82f6",
                 fill: "rgba(59, 130, 246, 0.2)",
                 width: 2,
+                points: { show: (u, seriesIdx) => Boolean(u.data[seriesIdx] && u.data[seriesIdx].length <= 5) }
             }
         ],
         axes: [
@@ -108,7 +116,8 @@ function initCharts() {
             {
                 grid: { show: true, stroke: "rgba(128,128,128,0.2)" },
                 font: "11px system-ui",
-                stroke: "var(--text-secondary)"
+                stroke: "var(--text-secondary)",
+                values: (u, vals) => vals.map(v => v != null ? v.toFixed(1) : "")
             }
         ]
     };
@@ -118,15 +127,27 @@ function initCharts() {
     const latencyOpts = {
         width: (latencyEl && latencyEl.clientWidth) ? latencyEl.clientWidth : initialWidth,
         height: initialHeight,
+        scales: {
+            x: { time: true },
+            y: {
+                auto: true,
+                range: (u, min, max) => [0, Math.max(max * 1.15, 10)]
+            }
+        },
         series: [
             {},
-            { label: "p50", stroke: "#10b981", width: 2 },
-            { label: "p95", stroke: "#f59e0b", width: 2 },
-            { label: "p99", stroke: "#ef4444", width: 2 }
+            { label: "p50", stroke: "#10b981", width: 2, points: { show: (u, seriesIdx) => Boolean(u.data[seriesIdx] && u.data[seriesIdx].length <= 5) } },
+            { label: "p95", stroke: "#f59e0b", width: 2, points: { show: (u, seriesIdx) => Boolean(u.data[seriesIdx] && u.data[seriesIdx].length <= 5) } },
+            { label: "p99", stroke: "#ef4444", width: 2, points: { show: (u, seriesIdx) => Boolean(u.data[seriesIdx] && u.data[seriesIdx].length <= 5) } }
         ],
         axes: [
             { grid: { stroke: "rgba(128,128,128,0.2)" }, font: "11px system-ui", stroke: "var(--text-secondary)" },
-            { grid: { stroke: "rgba(128,128,128,0.2)" }, font: "11px system-ui", stroke: "var(--text-secondary)" }
+            {
+                grid: { stroke: "rgba(128,128,128,0.2)" },
+                font: "11px system-ui",
+                stroke: "var(--text-secondary)",
+                values: (u, vals) => vals.map(v => v != null ? Math.round(v) + "ms" : "")
+            }
         ]
     };
     latencyChart = new uPlot(latencyOpts, [[], [], [], []], latencyEl);
@@ -451,9 +472,7 @@ function setVHost(vhost) {
     state.history.latency.p95 = [];
     state.history.latency.p99 = [];
     
-    if (state.timeRange !== 'live') {
-        fetchHistory();
-    }
+    fetchHistory();
 }
 
 async function fetchHistory() {
@@ -472,25 +491,44 @@ function processHistory(data) {
     if (!data) return;
     
     if (data.rps && data.rps.length > 0) {
-        state.history.rps.times = data.rps.map(p => p.ts || p[0]);
-        state.history.rps.values = data.rps.map(p => p.value !== undefined ? p.value : p[1]);
-        rpsChart.setData([state.history.rps.times, state.history.rps.values]);
-    } else {
+        let times = data.rps.map(p => p.ts || p[0]);
+        let values = data.rps.map(p => p.value !== undefined ? p.value : p[1]);
+        if (state.timeRange === 'live' && times.length > 60) {
+            times = times.slice(-60);
+            values = values.slice(-60);
+        }
+        state.history.rps.times = times;
+        state.history.rps.values = values;
+        rpsChart.setData([times, values]);
+    } else if (state.timeRange !== 'live') {
+        state.history.rps.times = [];
+        state.history.rps.values = [];
         rpsChart.setData([[], []]);
     }
     
     if (data.latency_p95 && data.latency_p95.length > 0) {
-        const times = data.latency_p95.map(p => p.ts || p[0]);
-        const p95Vals = data.latency_p95.map(p => p.value !== undefined ? p.value : p[1]);
-        const p50Vals = data.latency_p50 ? data.latency_p50.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 0.7);
-        const p99Vals = data.latency_p99 ? data.latency_p99.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 1.3);
+        let times = data.latency_p95.map(p => p.ts || p[0]);
+        let p95Vals = data.latency_p95.map(p => p.value !== undefined ? p.value : p[1]);
+        let p50Vals = data.latency_p50 ? data.latency_p50.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 0.7);
+        let p99Vals = data.latency_p99 ? data.latency_p99.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 1.3);
+
+        if (state.timeRange === 'live' && times.length > 60) {
+            times = times.slice(-60);
+            p50Vals = p50Vals.slice(-60);
+            p95Vals = p95Vals.slice(-60);
+            p99Vals = p99Vals.slice(-60);
+        }
 
         state.history.latency.times = times;
         state.history.latency.p50 = p50Vals;
         state.history.latency.p95 = p95Vals;
         state.history.latency.p99 = p99Vals;
         latencyChart.setData([times, p50Vals, p95Vals, p99Vals]);
-    } else {
+    } else if (state.timeRange !== 'live') {
+        state.history.latency.times = [];
+        state.history.latency.p50 = [];
+        state.history.latency.p95 = [];
+        state.history.latency.p99 = [];
         latencyChart.setData([[], [], [], []]);
     }
 
@@ -540,7 +578,7 @@ function aggregateVHosts(vhosts) {
     const agg = {
         rps: 0,
         error_rate: 0,
-        latency: { p50:0, p95:0, p99:0, avg:0 },
+        latency: { p50: 0, p95: 0, p99: 0, avg: 0 },
         status_codes: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 },
         unique_visitors: 0,
         bot_traffic: { human: 0, good_bot: 0, bad_bot: 0 },
@@ -549,6 +587,8 @@ function aggregateVHosts(vhosts) {
     if (!vhosts) return agg;
     
     let totalErrors = 0, totalReqs = 0;
+    let maxP50 = 0, maxP95 = 0, maxP99 = 0;
+    let weightedAvgLatencySum = 0, latencyWeight = 0;
     
     for (const [name, v] of Object.entries(vhosts)) {
         agg.rps += v.rps || 0;
@@ -569,6 +609,17 @@ function aggregateVHosts(vhosts) {
             agg.bot_traffic.bad_bot += v.bot_traffic.bad_bot || 0;
         }
 
+        if (v.latency) {
+            const w = v.rps > 0 ? v.rps : 1;
+            if ((v.latency.avg || 0) > 0 || (v.latency.p95 || 0) > 0) {
+                weightedAvgLatencySum += (v.latency.avg || 0) * w;
+                latencyWeight += w;
+                if ((v.latency.p50 || 0) > maxP50) maxP50 = v.latency.p50;
+                if ((v.latency.p95 || 0) > maxP95) maxP95 = v.latency.p95;
+                if ((v.latency.p99 || 0) > maxP99) maxP99 = v.latency.p99;
+            }
+        }
+
         if (v.top_paths) {
             v.top_paths.forEach(tp => {
                 agg.top_paths.push({
@@ -580,6 +631,14 @@ function aggregateVHosts(vhosts) {
     }
     
     if (totalReqs > 0) agg.error_rate = totalErrors / totalReqs;
+    if (latencyWeight > 0) {
+        agg.latency = {
+            p50: maxP50,
+            p95: maxP95,
+            p99: maxP99,
+            avg: weightedAvgLatencySum / latencyWeight
+        };
+    }
 
     // Sort combined top paths across all vhosts by RPS descending and limit to top 10
     agg.top_paths.sort((a, b) => (b.rps || 0) - (a.rps || 0));
@@ -610,10 +669,11 @@ function updateTimeSeries(ts, m) {
     latHist.p95.push(m.latency?.p95 || 0);
     latHist.p99.push(m.latency?.p99 || 0);
     
-    if (rpsHist.times.length > 60) {
+    while (rpsHist.times.length > 60) {
         rpsHist.times.shift();
         rpsHist.values.shift();
-        
+    }
+    while (latHist.times.length > 60) {
         latHist.times.shift();
         latHist.p50.shift();
         latHist.p95.shift();

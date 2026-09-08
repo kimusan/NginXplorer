@@ -50,13 +50,43 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		History: make(map[string]*metrics.VHostHistory),
 	}
 
-	// Include last hour of history for each vhost
+	// Include last hour of history for each vhost and aggregate "all"
+	aggHistory := &metrics.VHostHistory{
+		RPS:        make([]metrics.HistoryPoint, 0),
+		LatencyP95: make([]metrics.HistoryPoint, 0),
+		ErrorRate:  make([]metrics.HistoryPoint, 0),
+		Bandwidth:  make([]metrics.HistoryPoint, 0),
+	}
 	for _, name := range initialData.VHosts {
 		history := b.store.GetHistory(name, 1*time.Hour)
 		if history != nil {
 			initialData.History[name] = history
+			for i, p := range history.RPS {
+				if i < len(aggHistory.RPS) {
+					aggHistory.RPS[i].Value += p.Value
+				} else {
+					aggHistory.RPS = append(aggHistory.RPS, p)
+				}
+			}
+			for i, p := range history.LatencyP95 {
+				if i < len(aggHistory.LatencyP95) {
+					if p.Value > aggHistory.LatencyP95[i].Value {
+						aggHistory.LatencyP95[i].Value = p.Value
+					}
+				} else {
+					aggHistory.LatencyP95 = append(aggHistory.LatencyP95, p)
+				}
+			}
+			for i, p := range history.Bandwidth {
+				if i < len(aggHistory.Bandwidth) {
+					aggHistory.Bandwidth[i].Value += p.Value
+				} else {
+					aggHistory.Bandwidth = append(aggHistory.Bandwidth, p)
+				}
+			}
 		}
 	}
+	initialData.History["all"] = aggHistory
 
 	data, err := json.Marshal(initialData)
 	if err != nil {

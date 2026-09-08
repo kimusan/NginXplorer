@@ -96,6 +96,22 @@ func (h *Handlers) HandleHistory(w http.ResponseWriter, r *http.Request) {
 							agg.RPS = append(agg.RPS, p)
 						}
 					}
+					for i, p := range vhHistory.LatencyP95 {
+						if i < len(agg.LatencyP95) {
+							if p.Value > agg.LatencyP95[i].Value {
+								agg.LatencyP95[i].Value = p.Value
+							}
+						} else {
+							agg.LatencyP95 = append(agg.LatencyP95, p)
+						}
+					}
+					for i, p := range vhHistory.Bandwidth {
+						if i < len(agg.Bandwidth) {
+							agg.Bandwidth[i].Value += p.Value
+						} else {
+							agg.Bandwidth = append(agg.Bandwidth, p)
+						}
+					}
 				}
 			}
 			history = agg

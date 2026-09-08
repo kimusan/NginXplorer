@@ -287,3 +287,29 @@ func TestStore_BotTrafficSegmentation(t *testing.T) {
 		t.Errorf("expected 4 bad bot requests, got %d", vh.BotTraffic.BadBotRequests)
 	}
 }
+
+func TestStore_GetHistory_Latency(t *testing.T) {
+	store := NewStore(10, 10, 5)
+	now := time.Now()
+
+	store.RecordEntry(&LogEntry{
+		Host:        "example.com",
+		RemoteAddr:  "127.0.0.1",
+		Status:      200,
+		RequestTime: 0.050, // 50ms
+		Timestamp:   now,
+	})
+
+	store.commitSecond(now)
+
+	hist := store.GetHistory("example.com", 1*time.Minute)
+	if hist == nil {
+		t.Fatalf("expected non-nil history")
+	}
+	if len(hist.LatencyP95) != 1 {
+		t.Fatalf("expected 1 latency point, got %d", len(hist.LatencyP95))
+	}
+	if hist.LatencyP95[0].Value != 50.0 {
+		t.Errorf("expected latency 50.0ms, got %f", hist.LatencyP95[0].Value)
+	}
+}
