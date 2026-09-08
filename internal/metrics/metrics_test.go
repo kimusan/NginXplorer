@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"time"
 )
 
 func TestTDigest_BasicPercentiles(t *testing.T) {
@@ -164,19 +165,20 @@ func TestWindowedHLL_Basic(t *testing.T) {
 
 func TestTopKTracker_Basic(t *testing.T) {
 	tracker := NewTopKTracker(10)
+	now := time.Now().Unix()
 
-	// Add paths with different frequencies
+	// Add paths with different frequencies in current second
 	for i := 0; i < 100; i++ {
-		tracker.Add("/api/users", 0.05, true)
+		tracker.Add("/api/users", 0.05, true, now)
 	}
 	for i := 0; i < 50; i++ {
-		tracker.Add("/api/orders", 0.1, true)
+		tracker.Add("/api/orders", 0.1, true, now)
 	}
 	for i := 0; i < 10; i++ {
-		tracker.Add("/health", 0.001, true)
+		tracker.Add("/health", 0.001, true, now)
 	}
 
-	top := tracker.Top(3, 5.0)
+	top := tracker.Top(3, 5.0, now)
 
 	if len(top) != 3 {
 		t.Fatalf("expected 3 top paths, got %d", len(top))
@@ -186,9 +188,45 @@ func TestTopKTracker_Basic(t *testing.T) {
 	if top[0].Path != "/api/users" {
 		t.Errorf("top path = %s, want /api/users", top[0].Path)
 	}
+	// 100 requests over 5.0s window => 20 rps
+	if top[0].RPS != 20.0 {
+		t.Errorf("expected 20.0 rps, got %f", top[0].RPS)
+	}
 
 	// Second should be /api/orders
 	if top[1].Path != "/api/orders" {
 		t.Errorf("second path = %s, want /api/orders", top[1].Path)
+	}
+	if top[1].RPS != 10.0 {
+		t.Errorf("expected 10.0 rps, got %f", top[1].RPS)
+	}
+}
+
+func TestTopKTracker_WindowExpiration(t *testing.T) {
+	tracker := NewTopKTracker(10)
+	t0 := int64(1000)
+
+	// Add 50 requests at t0
+	for i := 0; i < 50; i++ {
+		tracker.Add("/burst", 0.01, true, t0)
+	}
+
+	// At t0, should have 50 requests => 10 rps over 5s
+	top0 := tracker.Top(1, 5.0, t0)
+	if len(top0) != 1 || top0[0].RPS != 10.0 {
+		t.Fatalf("expected 10.0 rps at t0, got %v", top0)
+	}
+
+	// At t0 + 10s (past 5s window), count should be 0
+	top10 := tracker.Top(1, 5.0, t0+10)
+	if len(top10) != 0 {
+		t.Fatalf("expected 0 top paths after window expired, got %d", len(top10))
+	}
+
+	// At t0 + 65s (past 60s ring capacity), slot is completely recycled
+	tracker.Add("/new", 0.01, true, t0+65)
+	top65 := tracker.Top(2, 5.0, t0+65)
+	if len(top65) != 1 || top65[0].Path != "/new" {
+		t.Fatalf("expected only /new, got %v", top65)
 	}
 }

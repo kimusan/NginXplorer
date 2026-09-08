@@ -131,7 +131,7 @@ func (s *Store) RecordEntry(entry *LogEntry) {
 
 	// Path tracking
 	is2xx := entry.Status >= 200 && entry.Status < 300
-	vh.PathCounts.Add(entry.URI, entry.RequestTime, is2xx)
+	vh.PathCounts.Add(entry.URI, entry.RequestTime, is2xx, entry.Timestamp.Unix())
 }
 
 // UpdateStubStatus updates the global metrics from a stub_status poll.
@@ -240,7 +240,7 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 	}
 
 	nowUnix := now.Unix()
-	topPaths := vh.PathCounts.Top(10, float64(windowSecs))
+	topPaths := vh.PathCounts.Top(10, float64(windowSecs), nowUnix)
 	for i := range topPaths {
 		topPaths[i].VHost = vh.Name
 	}

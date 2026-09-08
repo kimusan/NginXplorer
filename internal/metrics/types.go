@@ -177,11 +177,12 @@ type VHostState struct {
 	Last5MinRPS   float64
 }
 
-// TopKTracker maintains approximate counts of the top-K most frequent items
-// using a Count-Min Sketch inspired approach with a bounded heap.
+// TopKTracker maintains rolling window counts of requested paths to calculate accurate req/s.
+// It uses a 60-second ring buffer of 1-second slot counters.
 type TopKTracker struct {
 	mu       sync.Mutex
-	counts   map[string]*pathCounter
+	slots    [60]map[string]*pathCounter
+	slotTime [60]int64
 	maxItems int
 }
 
@@ -191,27 +192,47 @@ type pathCounter struct {
 	s2xx      int64
 }
 
-// NewTopKTracker creates a new tracker that retains at most maxItems paths.
+// NewTopKTracker creates a new tracker that retains at most maxItems paths over a rolling window.
 func NewTopKTracker(maxItems int) *TopKTracker {
-	return &TopKTracker{
-		counts:   make(map[string]*pathCounter),
+	t := &TopKTracker{
 		maxItems: maxItems,
 	}
+	for i := range t.slots {
+		t.slots[i] = make(map[string]*pathCounter)
+	}
+	return t
 }
 
-// Add records a request for the given path.
-func (t *TopKTracker) Add(path string, latency float64, is2xx bool) {
+// Add records a request for the given path at the specified unix timestamp (in seconds).
+// If unixTime <= 0, the current time is used.
+func (t *TopKTracker) Add(path string, latency float64, is2xx bool, unixTime int64) {
+	if unixTime <= 0 {
+		unixTime = time.Now().Unix()
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	pc, ok := t.counts[path]
+	slotIdx := int(unixTime % 60)
+	if slotIdx < 0 {
+		slotIdx = -slotIdx
+	}
+
+	// If this slot is from an older time, clear it for the current second
+	if t.slotTime[slotIdx] != unixTime {
+		t.slots[slotIdx] = make(map[string]*pathCounter)
+		t.slotTime[slotIdx] = unixTime
+	}
+
+	slotMap := t.slots[slotIdx]
+	pc, ok := slotMap[path]
 	if !ok {
-		// If we're at capacity, only add if this might be frequent
-		if len(t.counts) >= t.maxItems*2 {
-			t.evict()
+		// Bounded memory per slot
+		if len(slotMap) >= t.maxItems*2 {
+			t.evictSlot(slotMap)
 		}
 		pc = &pathCounter{}
-		t.counts[path] = pc
+		slotMap[path] = pc
 	}
 
 	pc.count++
@@ -221,33 +242,58 @@ func (t *TopKTracker) Add(path string, latency float64, is2xx bool) {
 	}
 }
 
-// evict removes the least frequent half of entries.
-func (t *TopKTracker) evict() {
-	if len(t.counts) == 0 {
+// evictSlot removes entries with count <= median in a single slot when at capacity.
+func (t *TopKTracker) evictSlot(m map[string]*pathCounter) {
+	if len(m) == 0 {
 		return
 	}
-
-	// Find median count
 	var total int64
-	for _, pc := range t.counts {
+	for _, pc := range m {
 		total += pc.count
 	}
-	threshold := total / int64(len(t.counts))
-
-	for path, pc := range t.counts {
+	threshold := total / int64(len(m))
+	for path, pc := range m {
 		if pc.count <= threshold {
-			delete(t.counts, path)
+			delete(m, path)
 		}
 	}
 }
 
-// Top returns the top N paths sorted by request count.
-func (t *TopKTracker) Top(n int, windowSeconds float64) []PathStats {
+// Top returns the top N paths across the rolling window (up to windowSeconds, max 60s).
+// windowSeconds specifies the lookback period and rate divisor.
+func (t *TopKTracker) Top(n int, windowSeconds float64, nowUnix int64) []PathStats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	if nowUnix <= 0 {
+		nowUnix = time.Now().Unix()
+	}
+
 	if windowSeconds <= 0 {
-		windowSeconds = 1
+		windowSeconds = 10
+	} else if windowSeconds > 60 {
+		windowSeconds = 60
+	}
+
+	winSecsInt := int64(windowSeconds)
+	minTime := nowUnix - winSecsInt
+
+	// Aggregate path counts over valid active slots in [nowUnix - windowSeconds + 1, nowUnix]
+	aggregated := make(map[string]*pathCounter)
+	for i := 0; i < 60; i++ {
+		st := t.slotTime[i]
+		if st > minTime && st <= nowUnix {
+			for path, pc := range t.slots[i] {
+				agg, ok := aggregated[path]
+				if !ok {
+					agg = &pathCounter{}
+					aggregated[path] = agg
+				}
+				agg.count += pc.count
+				agg.totalTime += pc.totalTime
+				agg.s2xx += pc.s2xx
+			}
+		}
 	}
 
 	type entry struct {
@@ -255,12 +301,12 @@ func (t *TopKTracker) Top(n int, windowSeconds float64) []PathStats {
 		pc   *pathCounter
 	}
 
-	entries := make([]entry, 0, len(t.counts))
-	for path, pc := range t.counts {
+	entries := make([]entry, 0, len(aggregated))
+	for path, pc := range aggregated {
 		entries = append(entries, entry{path, pc})
 	}
 
-	// Sort by count descending (simple insertion sort for small N)
+	// Sort by count descending
 	for i := 1; i < len(entries); i++ {
 		for j := i; j > 0 && entries[j].pc.count > entries[j-1].pc.count; j-- {
 			entries[j], entries[j-1] = entries[j-1], entries[j]
@@ -296,9 +342,12 @@ func (t *TopKTracker) Top(n int, windowSeconds float64) []PathStats {
 	return result
 }
 
-// Reset clears all tracked paths (called on window rotation).
+// Reset clears all tracked paths in all rolling slots.
 func (t *TopKTracker) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.counts = make(map[string]*pathCounter)
+	for i := range t.slots {
+		t.slots[i] = make(map[string]*pathCounter)
+		t.slotTime[i] = 0
+	}
 }
