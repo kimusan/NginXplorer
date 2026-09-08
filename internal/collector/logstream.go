@@ -59,7 +59,7 @@ func (c *LogStreamCollector) listenSocket(ctx context.Context) {
 	}
 	defer conn.Close()
 
-	if err := os.Chmod(c.socketPath, 0660); err != nil {
+	if err := os.Chmod(c.socketPath, 0666); err != nil {
 		slog.Error("failed to chmod socket", "error", err)
 	}
 

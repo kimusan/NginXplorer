@@ -248,6 +248,13 @@ function connectSSE() {
         if (state.isPaused) return;
         try {
             const data = JSON.parse(e.data);
+            if (data.vhosts) {
+                const names = Object.keys(data.vhosts);
+                const hasNew = names.some(name => !state.vhosts.has(name));
+                if (hasNew) {
+                    updateVHostList(Array.from(new Set([...state.vhosts, ...names])));
+                }
+            }
             processMetrics(data);
         } catch (err) {
             console.error('Error parsing metrics', err);
