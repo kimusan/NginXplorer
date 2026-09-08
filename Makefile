@@ -27,6 +27,7 @@ install: build
 	sudo install -Dm644 configs/nginxplorer.example.yaml /etc/nginxplorer/config.yaml.example
 	sudo install -Dm644 configs/nginx/nginxplorer-log.conf /etc/nginx/conf.d/nginxplorer-log.conf.example
 	sudo install -Dm644 configs/nginx/nginxplorer-status.conf /etc/nginx/conf.d/nginxplorer-status.conf.example
+	sudo install -Dm644 configs/nginxplorer.service /etc/systemd/system/nginxplorer.service
 	@echo "Installed $(BINARY) to /usr/local/bin/"
 	@echo "Copy and edit /etc/nginxplorer/config.yaml.example to /etc/nginxplorer/config.yaml"
 

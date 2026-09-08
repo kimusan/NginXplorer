@@ -1,0 +1,21 @@
+[Unit]
+Description=NginXplorer - Real-time Nginx Statistics
+After=network.target nginx.service
+Wants=nginx.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/nginxplorer --config /etc/nginxplorer/config.yaml
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65535
+
+# Sandboxing & Hardening
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

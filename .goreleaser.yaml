@@ -1,0 +1,83 @@
+# .goreleaser.yaml
+# Visit https://goreleaser.com for documentation on configuration options.
+version: 2
+
+project_name: nginxplorer
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nginxplorer
+    main: ./cmd/nginxplorer
+    binary: nginxplorer
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+nfpms:
+  - id: packages
+    package_name: nginxplorer
+    builds:
+      - nginxplorer
+    vendor: kimusan
+    homepage: https://github.com/kimusan/nginxplorer
+    maintainer: Kim <kimusan@users.noreply.github.com>
+    description: Real-time Nginx statistics visualization with web dashboard and TUI
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - archlinux
+    contents:
+      - src: configs/nginxplorer.example.yaml
+        dst: /etc/nginxplorer/config.yaml.example
+        type: config
+        file_info:
+          mode: 0644
+      - src: configs/nginx/nginxplorer-log.conf
+        dst: /etc/nginx/conf.d/nginxplorer-log.conf.example
+        file_info:
+          mode: 0644
+      - src: configs/nginx/nginxplorer-status.conf
+        dst: /etc/nginx/conf.d/nginxplorer-status.conf.example
+        file_info:
+          mode: 0644
+      - src: configs/nginxplorer.service
+        dst: /usr/lib/systemd/system/nginxplorer.service
+        file_info:
+          mode: 0644
+
+archives:
+  - id: tarballs
+    builds:
+      - nginxplorer
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - configs/nginxplorer.example.yaml
+      - configs/nginxplorer.service
+      - configs/nginx/nginxplorer-log.conf
+      - configs/nginx/nginxplorer-status.conf
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

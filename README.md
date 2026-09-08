@@ -131,6 +131,47 @@ Open your browser at **`http://127.0.0.1:9100`** and log in with:
 - Nginx 1.13+ (compiled with `--with-http_stub_status_module`, standard in all major distributions)
 - Go 1.22+ (only required if building from source)
 
+### Package Managers & Releases (Recommended)
+
+Pre-built binaries and native packages (`.deb`, `.rpm`, `.pkg.tar.zst`) for `x86_64`, `arm64`, and `armv7` are available on the [GitHub Releases](https://github.com/kimusan/nginxplorer/releases) page.
+
+#### Debian / Ubuntu (`.deb`)
+
+Download the `.deb` package for your architecture and install:
+
+```bash
+# Replace VERSION and ARCH (e.g. amd64, arm64)
+curl -LO https://github.com/kimusan/nginxplorer/releases/latest/download/nginxplorer_linux_amd64.deb
+sudo dpkg -i nginxplorer_linux_amd64.deb
+```
+
+#### RHEL / Fedora / CentOS / Rocky (`.rpm`)
+
+Download the `.rpm` package and install via `dnf` or `rpm`:
+
+```bash
+# Replace VERSION and ARCH (e.g. x86_64, aarch64)
+sudo dnf install https://github.com/kimusan/nginxplorer/releases/latest/download/nginxplorer_linux_amd64.rpm
+# or: sudo rpm -i nginxplorer_linux_amd64.rpm
+```
+
+#### Arch Linux (`.pkg.tar.zst`)
+
+Download the Arch package and install via `pacman`:
+
+```bash
+curl -LO https://github.com/kimusan/nginxplorer/releases/latest/download/nginxplorer_linux_x86_64.pkg.tar.zst
+sudo pacman -U nginxplorer_linux_x86_64.pkg.tar.zst
+```
+
+#### Pre-built Tarball
+
+```bash
+curl -LO https://github.com/kimusan/nginxplorer/releases/latest/download/nginxplorer_Linux_x86_64.tar.gz
+tar -xzf nginxplorer_Linux_x86_64.tar.gz
+sudo install -Dm755 nginxplorer /usr/local/bin/nginxplorer
+```
+
 ### Building from Source
 
 ```bash
