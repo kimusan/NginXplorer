@@ -20,16 +20,18 @@
 
 ## ✨ Features
 
-- **⚡ Real-Time Performance Metrics**:
+- **⚡ Real-Time Performance Metrics & Latency Histogram**:
   - Live requests-per-second (RPS) and active connections (reading, writing, waiting)
   - Connection rate, total accepted/handled counts, and drop detection
-  - Request latency distributions with percentiles ($p_{50}$, $p_{90}$, $p_{99}$)
+  - Request latency percentiles ($p_{50}$, $p_{95}$, $p_{99}$) using T-Digest / HDR Histograms
+  - Interactive 10-bucket Latency Distribution histogram (`<10ms` to `>5s`) updating in real time
+  - High-contrast, theme-reactive plot rendering for uPlot and ECharts across dark and light modes
   - Upstream response times and backend server health
 
 - **🌐 Virtual Host & Endpoint Analytics**:
   - Auto-discovery and traffic segmentation across all Nginx virtual hosts (`server_name`)
   - Real-time HTTP status breakdown ($2xx$, $3xx$, $4xx$, $5xx$)
-  - Top active request paths per virtual host with hit counts and latency metrics
+  - Top active request paths per virtual host with accurate 60-second sliding-window request rates and latencies
   - Bandwidth consumption tracking (incoming request bytes and egress payload)
 
 - **🖥️ Dual Interface (Web & TUI)**:
@@ -51,10 +53,11 @@
   - Real-time classification of requests into **Human Users**, **Verified Good Bots** (Google, Bing, DuckDuckGo, UptimeRobot, etc.), and **Malicious Scanners / Exploit Probes** (Sqlmap, Nikto, Nuclei, Gobuster, etc.)
   - Interactive rolling donut chart providing instant visibility into automated vs. organic traffic distributions
 
-- **📱 Progressive Web App (PWA)**:
+- **📱 Progressive Web App (PWA) & Mobile Installation**:
   - Installable home-screen app on iOS, Android, Windows, macOS, and Linux
-  - Offline application shell caching via Service Worker (`sw.js`)
-  - Standalone fullscreen display with bespoke SVG vector icon and status bar integration
+  - Native mobile installation prompt banner with `beforeinstallprompt` integration on Android and guided Share-sheet instructions on iOS
+  - High-resolution maskable PNG icons (192x192, 512x512) and offline application shell caching via Service Worker (`sw.js`)
+  - Standalone fullscreen display with bespoke vector branding and status bar integration
 
 - **🔒 Security & Privacy Built-In**:
   - Bcrypt-hashed user authentication for web access
@@ -763,8 +766,12 @@ make clean
   - [x] Web dashboard alerts modal & notification bell with live firing count
   - [x] Fluid mobile-responsive layout (`ResizeObserver`, touch scrolling tables, responsive topbar)
   - [x] Progressive Web App (PWA) support (`manifest.json`, offline-capable Service Worker, standalone home screen app)
+  - [x] Mobile PWA installation prompt banner (Android `beforeinstallprompt` & iOS Safari guidance)
+  - [x] High-resolution maskable icons (192px / 512px)
   - [x] Bot & crawler traffic segmentation (Human vs. Good Search/Monitoring Bots vs. Abusive Scanners) with real-time donut chart
   - [x] Historical time ranges (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) with SQLite rollups
+  - [x] 10-bucket real-time latency distribution histogram and percentiles
+  - [x] High-contrast canvas plot theming for dark and light modes
   - [x] Rolling 60s window tracking for accurate path req/s
 
 - [ ] **Phase 4: Ecosystem & Advanced Telemetry**
