@@ -129,6 +129,16 @@ func (s *Store) RecordEntry(entry *LogEntry) {
 	// Unique visitor tracking (HyperLogLog)
 	vh.Visitors.Add(entry.RemoteAddr, entry.Timestamp.Unix())
 
+	// Client bot and crawler classification
+	switch ClassifyClient(entry.UserAgent) {
+	case ClientGoodBot:
+		vh.CurrentSecond.BotTraffic.GoodBotRequests++
+	case ClientBadBot:
+		vh.CurrentSecond.BotTraffic.BadBotRequests++
+	default:
+		vh.CurrentSecond.BotTraffic.HumanRequests++
+	}
+
 	// Path tracking
 	is2xx := entry.Status >= 200 && entry.Status < 300
 	vh.PathCounts.Add(entry.URI, entry.RequestTime, is2xx, entry.Timestamp.Unix())
@@ -228,6 +238,23 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		totalBytesOut += bucket.BytesOut
 	}
 
+	// Aggregate bot traffic over rolling 60 seconds for stable segmentation
+	botWindowSecs := 60
+	var totalBotTraffic BotTrafficStats
+	for i := 0; i < botWindowSecs; i++ {
+		idx := (vh.SecondsHead - 1 - i + len(vh.Seconds)) % len(vh.Seconds)
+		bucket := vh.Seconds[idx]
+		if bucket.Timestamp.IsZero() {
+			continue
+		}
+		if now.Sub(bucket.Timestamp) > time.Duration(botWindowSecs+2)*time.Second {
+			continue
+		}
+		totalBotTraffic.HumanRequests += bucket.BotTraffic.HumanRequests
+		totalBotTraffic.GoodBotRequests += bucket.BotTraffic.GoodBotRequests
+		totalBotTraffic.BadBotRequests += bucket.BotTraffic.BadBotRequests
+	}
+
 	rps := 0.0
 	if validSeconds > 0 {
 		rps = float64(totalReqs) / float64(validSeconds)
@@ -253,6 +280,7 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		Latency:        vh.Digest.Stats(),
 		Bandwidth:      Bandwidth{In: totalBytesIn, Out: totalBytesOut},
 		UniqueVisitors: visitors,
+		BotTraffic:     totalBotTraffic,
 		TopPaths:       topPaths,
 	}
 }

@@ -78,13 +78,14 @@ type PathStats struct {
 
 // VHostMetrics holds the current real-time metrics for a single virtual host.
 type VHostMetrics struct {
-	RPS            float64      `json:"rps"`
-	ErrorRate      float64      `json:"error_rate"` // percentage of 4xx+5xx
-	StatusCodes    StatusCodes  `json:"status_codes"`
-	Latency        LatencyStats `json:"latency"`
-	Bandwidth      Bandwidth    `json:"bandwidth"`
-	UniqueVisitors int64        `json:"unique_visitors"`
-	TopPaths       []PathStats  `json:"top_paths"`
+	RPS            float64         `json:"rps"`
+	ErrorRate      float64         `json:"error_rate"` // percentage of 4xx+5xx
+	StatusCodes    StatusCodes     `json:"status_codes"`
+	Latency        LatencyStats    `json:"latency"`
+	Bandwidth      Bandwidth       `json:"bandwidth"`
+	UniqueVisitors int64           `json:"unique_visitors"`
+	BotTraffic     BotTrafficStats `json:"bot_traffic"`
+	TopPaths       []PathStats     `json:"top_paths"`
 }
 
 // GlobalMetrics holds server-wide metrics from stub_status.
@@ -114,14 +115,15 @@ type HistoryPoint struct {
 
 // HistorySummary holds aggregated totals for a historical query period.
 type HistorySummary struct {
-	TotalRequests  int64       `json:"total_requests"`
-	AvgRPS         float64     `json:"avg_rps"`
-	AvgLatency     float64     `json:"avg_latency"`
-	ErrorRate      float64     `json:"error_rate"`
-	StatusCodes    StatusCodes `json:"status_codes"`
-	TotalBytesIn   int64       `json:"total_bytes_in"`
-	TotalBytesOut  int64       `json:"total_bytes_out"`
-	UniqueVisitors int64       `json:"unique_visitors"`
+	TotalRequests  int64           `json:"total_requests"`
+	AvgRPS         float64         `json:"avg_rps"`
+	AvgLatency     float64         `json:"avg_latency"`
+	ErrorRate      float64         `json:"error_rate"`
+	StatusCodes    StatusCodes     `json:"status_codes"`
+	TotalBytesIn   int64           `json:"total_bytes_in"`
+	TotalBytesOut  int64           `json:"total_bytes_out"`
+	UniqueVisitors int64           `json:"unique_visitors"`
+	BotTraffic     BotTrafficStats `json:"bot_traffic,omitempty"`
 }
 
 // VHostHistory holds historical time series data for a single vhost.
@@ -135,8 +137,8 @@ type VHostHistory struct {
 
 // HistorySnapshot is the full historical data sent on initial client connection.
 type HistorySnapshot struct {
-	VHosts  []string                    `json:"vhosts"`
-	History map[string]*VHostHistory    `json:"history"`
+	VHosts  []string                 `json:"vhosts"`
+	History map[string]*VHostHistory `json:"history"`
 }
 
 // SecondBucket holds aggregated metrics for a single 1-second window.
@@ -144,6 +146,7 @@ type SecondBucket struct {
 	Timestamp    time.Time
 	Requests     int64
 	StatusCodes  StatusCodes
+	BotTraffic   BotTrafficStats
 	TotalLatency float64 // sum of all request times (for averaging)
 	BytesIn      int64
 	BytesOut     int64

@@ -230,3 +230,60 @@ func TestTopKTracker_WindowExpiration(t *testing.T) {
 		t.Fatalf("expected only /new, got %v", top65)
 	}
 }
+
+func TestStore_BotTrafficSegmentation(t *testing.T) {
+	store := NewStore(10, 10, 5)
+	now := time.Now()
+
+	// Record 3 human requests
+	for i := 0; i < 3; i++ {
+		store.RecordEntry(&LogEntry{
+			Host:       "example.com",
+			RemoteAddr: "192.168.1.1",
+			UserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+			Status:     200,
+			Timestamp:  now,
+		})
+	}
+
+	// Record 2 good bot requests
+	for i := 0; i < 2; i++ {
+		store.RecordEntry(&LogEntry{
+			Host:       "example.com",
+			RemoteAddr: "66.249.66.1",
+			UserAgent:  "Googlebot/2.1 (+http://www.google.com/bot.html)",
+			Status:     200,
+			Timestamp:  now,
+		})
+	}
+
+	// Record 4 bad bot/scanner requests
+	for i := 0; i < 4; i++ {
+		store.RecordEntry(&LogEntry{
+			Host:       "example.com",
+			RemoteAddr: "45.155.205.233",
+			UserAgent:  "sqlmap/1.6#stable",
+			Status:     404,
+			Timestamp:  now,
+		})
+	}
+
+	// Commit the second
+	store.commitSecond(now)
+
+	snap := store.Snapshot()
+	vh, ok := snap.VHosts["example.com"]
+	if !ok {
+		t.Fatalf("vhost example.com not found in snapshot")
+	}
+
+	if vh.BotTraffic.HumanRequests != 3 {
+		t.Errorf("expected 3 human requests, got %d", vh.BotTraffic.HumanRequests)
+	}
+	if vh.BotTraffic.GoodBotRequests != 2 {
+		t.Errorf("expected 2 good bot requests, got %d", vh.BotTraffic.GoodBotRequests)
+	}
+	if vh.BotTraffic.BadBotRequests != 4 {
+		t.Errorf("expected 4 bad bot requests, got %d", vh.BotTraffic.BadBotRequests)
+	}
+}

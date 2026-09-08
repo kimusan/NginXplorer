@@ -1,0 +1,19 @@
+{
+  "name": "NginXplorer",
+  "short_name": "NginXplorer",
+  "description": "Real-time, zero-overhead Nginx observability dashboard",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#1e1e1e",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

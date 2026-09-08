@@ -35,7 +35,6 @@ const els = {
     statConnections: document.getElementById('stat-connections'),
     trendConnections: document.getElementById('trend-connections'),
     statUv: document.getElementById('stat-uv'),
-    statUvBottom: document.getElementById('stat-uv-bottom'),
     
     // Tables
     topPathsThead: document.querySelector('#top-paths-table thead tr'),
@@ -52,7 +51,7 @@ const els = {
 };
 
 // Charts
-let rpsChart, latencyChart, statusChart, latencyHistChart;
+let rpsChart, latencyChart, statusChart, latencyHistChart, clientTypeChart;
 
 function getChartHeight() {
     return window.innerWidth <= 768 ? (window.innerWidth <= 420 ? 195 : 220) : 280;
@@ -78,6 +77,7 @@ function toggleTheme() {
     // Re-render charts for theme
     if (statusChart) statusChart.resize();
     if (latencyHistChart) latencyHistChart.resize();
+    if (clientTypeChart) clientTypeChart.resize();
 }
 
 function initCharts() {
@@ -134,6 +134,10 @@ function initCharts() {
     // ECharts
     statusChart = echarts.init(document.getElementById('chart-status'));
     latencyHistChart = echarts.init(document.getElementById('chart-latency-hist'));
+    const clientTypeEl = document.getElementById('chart-client-type');
+    if (clientTypeEl) {
+        clientTypeChart = echarts.init(clientTypeEl);
+    }
 
     // ResizeObserver for fluid, robust responsive resizing without overflow
     const ro = new ResizeObserver((entries) => {
@@ -149,6 +153,8 @@ function initCharts() {
                 statusChart.resize();
             } else if (entry.target.id === 'chart-latency-hist' && latencyHistChart) {
                 latencyHistChart.resize();
+            } else if (entry.target.id === 'chart-client-type' && clientTypeChart) {
+                clientTypeChart.resize();
             }
         }
     });
@@ -159,6 +165,7 @@ function initCharts() {
     if (statusEl) ro.observe(statusEl);
     const histEl = document.getElementById('chart-latency-hist');
     if (histEl) ro.observe(histEl);
+    if (clientTypeEl) ro.observe(clientTypeEl);
 
     // Fallback on window resize
     window.addEventListener('resize', () => {
@@ -167,6 +174,58 @@ function initCharts() {
         if (latencyEl && latencyChart) latencyChart.setSize({ width: latencyEl.clientWidth || initialWidth, height: h });
         if (statusChart) statusChart.resize();
         if (latencyHistChart) latencyHistChart.resize();
+        if (clientTypeChart) clientTypeChart.resize();
+    });
+}
+
+function updateClientTypeChart(botTraffic) {
+    if (!clientTypeChart) return;
+    if (!botTraffic) botTraffic = { human: 0, good_bot: 0, bad_bot: 0 };
+
+    const human = botTraffic.human || 0;
+    const goodBot = botTraffic.good_bot || 0;
+    const badBot = botTraffic.bad_bot || 0;
+    const total = human + goodBot + badBot;
+
+    const data = [
+        { value: human, name: 'Human', itemStyle: { color: '#10b981' } },
+        { value: goodBot, name: 'Good Bots', itemStyle: { color: '#3b82f6' } },
+        { value: badBot, name: 'Scanners / Bad', itemStyle: { color: '#ef4444' } }
+    ];
+
+    clientTypeChart.setOption({
+        tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c} reqs ({d}%)'
+        },
+        legend: {
+            orient: 'horizontal',
+            bottom: 0,
+            itemWidth: 10,
+            itemHeight: 10,
+            textStyle: { color: 'var(--text-secondary)', fontSize: 11 }
+        },
+        series: [{
+            name: 'Client Types',
+            type: 'pie',
+            radius: ['40%', '68%'],
+            center: ['50%', '42%'],
+            avoidLabelOverlap: false,
+            itemStyle: {
+                borderRadius: 6,
+                borderColor: 'var(--bg-card)',
+                borderWidth: 2
+            },
+            label: {
+                show: total > 0,
+                formatter: '{d}%',
+                color: 'var(--text-primary)',
+                fontSize: 11
+            },
+            data: total > 0 ? data : [
+                { value: 1, name: 'Awaiting traffic', itemStyle: { color: 'rgba(128,128,128,0.2)' } }
+            ]
+        }]
     });
 }
 
@@ -447,10 +506,12 @@ function processHistory(data) {
         if (connTitle) connTitle.textContent = state.timeRange === 'live' ? 'Active Connections' : 'Total Requests';
         const uvFormatted = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
         els.statUv.textContent = uvFormatted;
-        if (els.statUvBottom) els.statUvBottom.textContent = uvFormatted;
 
         if (s.status_codes) {
             updateECharts(s.status_codes, null);
+        }
+        if (s.bot_traffic) {
+            updateClientTypeChart(s.bot_traffic);
         }
     }
 }
@@ -471,11 +532,20 @@ function processMetrics(data) {
     updateCards(metrics);
     updateTimeSeries(ts, metrics);
     updateECharts(metrics.status_codes, null);
+    updateClientTypeChart(metrics.bot_traffic);
     updateTable(metrics.top_paths);
 }
 
 function aggregateVHosts(vhosts) {
-    const agg = { rps: 0, error_rate: 0, latency: { p50:0, p95:0, p99:0, avg:0 }, status_codes: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 }, unique_visitors: 0, top_paths: [] };
+    const agg = {
+        rps: 0,
+        error_rate: 0,
+        latency: { p50:0, p95:0, p99:0, avg:0 },
+        status_codes: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 },
+        unique_visitors: 0,
+        bot_traffic: { human: 0, good_bot: 0, bad_bot: 0 },
+        top_paths: []
+    };
     if (!vhosts) return agg;
     
     let totalErrors = 0, totalReqs = 0;
@@ -491,6 +561,12 @@ function aggregateVHosts(vhosts) {
             agg.status_codes['3xx'] += v.status_codes['3xx'] || 0;
             agg.status_codes['4xx'] += v.status_codes['4xx'] || 0;
             agg.status_codes['5xx'] += v.status_codes['5xx'] || 0;
+        }
+
+        if (v.bot_traffic) {
+            agg.bot_traffic.human += v.bot_traffic.human || 0;
+            agg.bot_traffic.good_bot += v.bot_traffic.good_bot || 0;
+            agg.bot_traffic.bad_bot += v.bot_traffic.bad_bot || 0;
         }
 
         if (v.top_paths) {
@@ -519,7 +595,6 @@ function updateCards(m) {
     els.statConnections.textContent = m.active_connections || 0;
     const uvVal = m.unique_visitors || 0;
     els.statUv.textContent = uvVal;
-    if (els.statUvBottom) els.statUvBottom.textContent = uvVal;
 }
 
 function updateTimeSeries(ts, m) {
@@ -678,3 +753,12 @@ async function sendTestAlert() {
 
 // Start
 document.addEventListener('DOMContentLoaded', init);
+
+// Register PWA Service Worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.warn('PWA service worker registration failed:', err);
+        });
+    });
+}

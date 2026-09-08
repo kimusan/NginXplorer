@@ -47,6 +47,15 @@
   - Multi-channel notification dispatchers: **ntfy.sh** (mobile push), **Pushbullet**, **Slack / Discord**, and **generic webhooks**
   - Integrated in-browser alerts modal with active incidents and historical incident logs
 
+- **🤖 Bot & Crawler Traffic Segmentation**:
+  - Real-time classification of requests into **Human Users**, **Verified Good Bots** (Google, Bing, DuckDuckGo, UptimeRobot, etc.), and **Malicious Scanners / Exploit Probes** (Sqlmap, Nikto, Nuclei, Gobuster, etc.)
+  - Interactive rolling donut chart providing instant visibility into automated vs. organic traffic distributions
+
+- **📱 Progressive Web App (PWA)**:
+  - Installable home-screen app on iOS, Android, Windows, macOS, and Linux
+  - Offline application shell caching via Service Worker (`sw.js`)
+  - Standalone fullscreen display with bespoke SVG vector icon and status bar integration
+
 - **🔒 Security & Privacy Built-In**:
   - Bcrypt-hashed user authentication for web access
   - IP anonymization (masks client IP octets for GDPR/compliance)
@@ -747,12 +756,14 @@ make clean
   - [x] Keyboard navigation for inspecting vhosts and drill-downs
   - [x] Headless/SSH remote attachment mode
 
-- [x] **Phase 3: Alerting & Mobile Dashboard**
+- [x] **Phase 3: Alerting, Mobile PWA & Bot Segmentation**
   - [x] Real-time threshold alerting engine (error rate spikes, latency degradation, zero traffic)
   - [x] Low-traffic dampening (`min_requests`, `min_errors`) to prevent bot false positives
   - [x] Multi-channel notification dispatchers (ntfy.sh mobile push, Pushbullet, Slack, Discord, webhook)
   - [x] Web dashboard alerts modal & notification bell with live firing count
   - [x] Fluid mobile-responsive layout (`ResizeObserver`, touch scrolling tables, responsive topbar)
+  - [x] Progressive Web App (PWA) support (`manifest.json`, offline-capable Service Worker, standalone home screen app)
+  - [x] Bot & crawler traffic segmentation (Human vs. Good Search/Monitoring Bots vs. Abusive Scanners) with real-time donut chart
   - [x] Historical time ranges (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) with SQLite rollups
   - [x] Rolling 60s window tracking for accurate path req/s
 

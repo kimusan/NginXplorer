@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NginXplorer</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#1e1e1e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="NginXplorer">
+    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="icon" type="image/svg+xml" href="/icon.svg">
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css">
 </head>
@@ -134,11 +141,8 @@
                         </div>
                     </div>
                     <div class="card chart-card flex-1">
-                        <h3>Unique Visitors</h3>
-                        <div class="unique-visitors">
-                            <div class="uv-value" id="stat-uv-bottom">0</div>
-                            <div class="uv-sparkline" id="spark-uv"></div>
-                        </div>
+                        <h3>Traffic Segmentation</h3>
+                        <div id="chart-client-type" class="echarts-chart"></div>
                     </div>
                 </div>
             </div>

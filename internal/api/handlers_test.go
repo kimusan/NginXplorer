@@ -91,3 +91,21 @@ func TestHandleHistory(t *testing.T) {
 		t.Errorf("expected 200 for alerts endpoint, got %d", w.Code)
 	}
 }
+
+func TestStaticAssets_PWA(t *testing.T) {
+	srv := NewServer(ServerConfig{
+		Bind: ":0",
+	})
+
+	for _, path := range []string{"/manifest.json", "/sw.js", "/icon.svg", "/index.html"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		srv.httpServer.Handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", path, w.Code)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("expected non-empty body for %s", path)
+		}
+	}
+}
