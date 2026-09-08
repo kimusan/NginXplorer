@@ -119,13 +119,18 @@ func (s *SQLiteStore) Record(ctx context.Context, timestamp time.Time, vhost str
 	// Round timestamp to minute boundary
 	ts := timestamp.Truncate(time.Minute).Unix()
 
+	requests := snap.StatusCodes.Total()
+	if requests == 0 && snap.RPS > 0 {
+		requests = int64(snap.RPS * 60)
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 		INSERT OR REPLACE INTO metrics_1m 
 			(timestamp, vhost, requests, s2xx, s3xx, s4xx, s5xx, 
 			 latency_avg, latency_p95, latency_p99, bytes_in, bytes_out, unique_visitors)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ts, vhost,
-		int64(snap.RPS*60), // approximate total requests in this minute
+		requests,
 		snap.StatusCodes.S2xx, snap.StatusCodes.S3xx,
 		snap.StatusCodes.S4xx, snap.StatusCodes.S5xx,
 		snap.Latency.Avg, snap.Latency.P95, snap.Latency.P99,
@@ -137,6 +142,8 @@ func (s *SQLiteStore) Record(ctx context.Context, timestamp time.Time, vhost str
 }
 
 // QueryHistory retrieves historical data for a vhost within the given time range.
+// QueryHistory retrieves aggregated time-series data for a vhost within a time range.
+// If vhost is "all" or "", it aggregates across all vhosts.
 // It automatically selects the appropriate resolution table based on the range.
 func (s *SQLiteStore) QueryHistory(ctx context.Context, vhost string, from, to time.Time) (*metrics.VHostHistory, error) {
 	s.mu.Lock()
@@ -153,13 +160,31 @@ func (s *SQLiteStore) QueryHistory(ctx context.Context, vhost string, from, to t
 		table = "metrics_1h"
 	}
 
-	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT timestamp, requests, s2xx, s3xx, s4xx, s5xx,
-		       latency_avg, latency_p95, latency_p99, bytes_in, bytes_out, unique_visitors
-		FROM %s
-		WHERE vhost = ? AND timestamp >= ? AND timestamp <= ?
-		ORDER BY timestamp ASC
-	`, table), vhost, from.Unix(), to.Unix())
+	var query string
+	var args []interface{}
+
+	if vhost == "all" || vhost == "_all" || vhost == "" {
+		query = fmt.Sprintf(`
+			SELECT timestamp, SUM(requests), SUM(s2xx), SUM(s3xx), SUM(s4xx), SUM(s5xx),
+			       AVG(latency_avg), MAX(latency_p95), MAX(latency_p99), SUM(bytes_in), SUM(bytes_out), SUM(unique_visitors)
+			FROM %s
+			WHERE timestamp >= ? AND timestamp <= ?
+			GROUP BY timestamp
+			ORDER BY timestamp ASC
+		`, table)
+		args = []interface{}{from.Unix(), to.Unix()}
+	} else {
+		query = fmt.Sprintf(`
+			SELECT timestamp, requests, s2xx, s3xx, s4xx, s5xx,
+			       latency_avg, latency_p95, latency_p99, bytes_in, bytes_out, unique_visitors
+			FROM %s
+			WHERE vhost = ? AND timestamp >= ? AND timestamp <= ?
+			ORDER BY timestamp ASC
+		`, table)
+		args = []interface{}{vhost, from.Unix(), to.Unix()}
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("querying history: %w", err)
 	}
@@ -170,7 +195,13 @@ func (s *SQLiteStore) QueryHistory(ctx context.Context, vhost string, from, to t
 		LatencyP95: make([]metrics.HistoryPoint, 0),
 		ErrorRate:  make([]metrics.HistoryPoint, 0),
 		Bandwidth:  make([]metrics.HistoryPoint, 0),
+		Summary:    &metrics.HistorySummary{},
 	}
+
+	var totalReqs, total2xx, total3xx, total4xx, total5xx int64
+	var totalBytesIn, totalBytesOut, maxVisitors int64
+	var latSum float64
+	var pointCount int64
 
 	for rows.Next() {
 		var ts int64
@@ -204,6 +235,55 @@ func (s *SQLiteStore) QueryHistory(ctx context.Context, vhost string, from, to t
 		history.LatencyP95 = append(history.LatencyP95, metrics.HistoryPoint{Timestamp: ts, Value: latP95})
 		history.ErrorRate = append(history.ErrorRate, metrics.HistoryPoint{Timestamp: ts, Value: errRate})
 		history.Bandwidth = append(history.Bandwidth, metrics.HistoryPoint{Timestamp: ts, Value: float64(bytesOut)})
+
+		// Accumulate summary totals
+		totalReqs += requests
+		total2xx += s2xx
+		total3xx += s3xx
+		total4xx += s4xx
+		total5xx += s5xx
+		totalBytesIn += bytesIn
+		totalBytesOut += bytesOut
+		if visitors > maxVisitors {
+			maxVisitors = visitors
+		}
+		if latAvg > 0 {
+			latSum += latAvg
+			pointCount++
+		}
+	}
+
+	totalCodes := total2xx + total3xx + total4xx + total5xx
+	var overallErrRate float64
+	if totalCodes > 0 {
+		overallErrRate = float64(total4xx+total5xx) / float64(totalCodes) * 100
+	}
+
+	var overallAvgLat float64
+	if pointCount > 0 {
+		overallAvgLat = latSum / float64(pointCount)
+	}
+
+	var overallAvgRPS float64
+	secs := duration.Seconds()
+	if secs > 0 {
+		overallAvgRPS = float64(totalReqs) / secs
+	}
+
+	history.Summary = &metrics.HistorySummary{
+		TotalRequests: totalReqs,
+		AvgRPS:        overallAvgRPS,
+		AvgLatency:    overallAvgLat,
+		ErrorRate:     overallErrRate,
+		StatusCodes: metrics.StatusCodes{
+			S2xx: total2xx,
+			S3xx: total3xx,
+			S4xx: total4xx,
+			S5xx: total5xx,
+		},
+		TotalBytesIn:   totalBytesIn,
+		TotalBytesOut:  totalBytesOut,
+		UniqueVisitors: maxVisitors,
 	}
 
 	return history, rows.Err()

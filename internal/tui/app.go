@@ -30,8 +30,10 @@ type Model struct {
 
 	// Current state
 	snapshot    *metrics.Snapshot
-	vhosts     []string
+	vhosts      []string
 	activeVHost int // index into vhosts; 0 = "all"
+	timeRange   string // "live", "1h", "24h", "7d"
+	historyData *metrics.VHostHistory
 
 	// History ring for sparklines (last 60 data points)
 	rpsHistory     []float64
@@ -45,6 +47,7 @@ type Model struct {
 // Messages
 type snapshotMsg struct{ snap *metrics.Snapshot }
 type vhostMsg struct{ vhosts []string }
+type historyMsg struct{ hist *metrics.VHostHistory }
 type errMsg struct{ err error }
 type tickMsg struct{}
 
@@ -56,6 +59,7 @@ func NewModel(addr, token, username, password string) Model {
 		client:      client,
 		connectAddr: addr,
 		activeVHost: 0, // "all"
+		timeRange:   "live",
 		rpsHistory:  make([]float64, 0, 60),
 		latHistory:  make([]float64, 0, 60),
 		errHistory:  make([]float64, 0, 60),
@@ -83,6 +87,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.client.Close()
 			return m, tea.Quit
 
+		case "r":
+			// Cycle time range: live -> 1h -> 24h -> 7d -> live
+			switch m.timeRange {
+			case "live":
+				m.timeRange = "1h"
+			case "1h":
+				m.timeRange = "24h"
+			case "24h":
+				m.timeRange = "7d"
+			default:
+				m.timeRange = "live"
+			}
+
+			if m.timeRange == "live" {
+				m.historyData = nil
+				m.rpsHistory = m.rpsHistory[:0]
+				m.latHistory = m.latHistory[:0]
+				m.errHistory = m.errHistory[:0]
+				return m, nil
+			}
+
+			vhost := "all"
+			if m.activeVHost > 0 && m.activeVHost-1 < len(m.vhosts) {
+				vhost = m.vhosts[m.activeVHost-1]
+			}
+			return m, fetchHistoryCmd(m.client, vhost, m.timeRange)
+
 		case "tab":
 			// Cycle to next vhost
 			if len(m.vhosts) > 0 {
@@ -92,6 +123,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rpsHistory = m.rpsHistory[:0]
 			m.latHistory = m.latHistory[:0]
 			m.errHistory = m.errHistory[:0]
+			if m.timeRange != "live" {
+				vhost := "all"
+				if m.activeVHost > 0 && m.activeVHost-1 < len(m.vhosts) {
+					vhost = m.vhosts[m.activeVHost-1]
+				}
+				return m, fetchHistoryCmd(m.client, vhost, m.timeRange)
+			}
 			return m, nil
 
 		case "shift+tab":
@@ -103,8 +141,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rpsHistory = m.rpsHistory[:0]
 			m.latHistory = m.latHistory[:0]
 			m.errHistory = m.errHistory[:0]
+			if m.timeRange != "live" {
+				vhost := "all"
+				if m.activeVHost > 0 && m.activeVHost-1 < len(m.vhosts) {
+					vhost = m.vhosts[m.activeVHost-1]
+				}
+				return m, fetchHistoryCmd(m.client, vhost, m.timeRange)
+			}
 			return m, nil
 		}
+
+	case historyMsg:
+		m.historyData = msg.hist
+		if msg.hist != nil {
+			m.loadHistorySparklines(msg.hist)
+		}
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -138,6 +190,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // updateHistory appends the current metrics to the sparkline history buffers.
 func (m *Model) updateHistory() {
+	if m.timeRange != "live" {
+		return
+	}
 	if m.snapshot == nil {
 		return
 	}
@@ -298,6 +353,9 @@ func (m Model) renderHeader() string {
 	}
 
 	status := lipgloss.NewStyle().Foreground(colorSuccess).Render("● Live")
+	if m.timeRange != "live" {
+		status = lipgloss.NewStyle().Foreground(colorWarning).Render("📅 " + m.timeRange + " (Hist)")
+	}
 	if !m.connected {
 		status = lipgloss.NewStyle().Foreground(colorDanger).Render("● Disconnected")
 	}
@@ -335,13 +393,17 @@ func (m Model) renderConnecting() string {
 	return msg
 }
 
-// renderStatCards renders the 4 stat summary cards.
+// renderStatCards renders the 5 stat summary cards.
 func (m Model) renderStatCards() string {
 	vm := m.getActiveMetrics()
 
+	rpsLabel := "Requests/s"
 	rps := fmt.Sprintf("%.1f", vm.RPS)
 	errRate := fmt.Sprintf("%.2f%%", vm.ErrorRate)
+	errRateVal := vm.ErrorRate
+	latLabel := "Latency p95"
 	latency := fmt.Sprintf("%.1fms", vm.Latency.P95)
+	connLabel := "Connections"
 	conns := "0"
 	connDetail := ""
 	if m.snapshot != nil {
@@ -349,14 +411,32 @@ func (m Model) renderStatCards() string {
 		conns = fmt.Sprintf("%d", g.ActiveConnections)
 		connDetail = fmt.Sprintf("R:%d W:%d I:%d", g.Reading, g.Writing, g.Waiting)
 	}
+	visitorLabel := "Visitors"
 	visitors := fmt.Sprintf("%d", vm.UniqueVisitors)
+	visitorDetail := "5min"
+
+	if m.timeRange != "live" && m.historyData != nil && m.historyData.Summary != nil {
+		s := m.historyData.Summary
+		rpsLabel = "Avg Req/s"
+		rps = fmt.Sprintf("%.1f", s.AvgRPS)
+		errRate = fmt.Sprintf("%.2f%%", s.ErrorRate)
+		errRateVal = s.ErrorRate
+		latLabel = "Avg Latency"
+		latency = fmt.Sprintf("%.1fms", s.AvgLatency)
+		connLabel = "Total Requests"
+		conns = fmt.Sprintf("%d", s.TotalRequests)
+		connDetail = m.timeRange
+		visitorLabel = "Visitors"
+		visitors = fmt.Sprintf("%d", s.UniqueVisitors)
+		visitorDetail = m.timeRange
+	}
 
 	// Color the error rate based on value
 	errStyle := statGoodStyle
-	if vm.ErrorRate > 1 {
+	if errRateVal > 1 {
 		errStyle = lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 	}
-	if vm.ErrorRate > 5 {
+	if errRateVal > 5 {
 		errStyle = statBadStyle
 	}
 
@@ -377,11 +457,11 @@ func (m Model) renderStatCards() string {
 	}
 
 	cards := lipgloss.JoinHorizontal(lipgloss.Top,
-		card("Requests/s", rps, statValueStyle, ""),
+		card(rpsLabel, rps, statValueStyle, ""),
 		card("Error Rate", errRate, errStyle, ""),
-		card("Latency p95", latency, statValueStyle, ""),
-		card("Connections", conns, statValueStyle, connDetail),
-		card("Visitors", visitors, statValueStyle, "5min"),
+		card(latLabel, latency, statValueStyle, ""),
+		card(connLabel, conns, statValueStyle, connDetail),
+		card(visitorLabel, visitors, statValueStyle, visitorDetail),
 	)
 
 	return "\n" + cards
@@ -482,18 +562,24 @@ func (m Model) renderMiddleRow() string {
 	vm := m.getActiveMetrics()
 
 	// Status codes section
-	total := vm.StatusCodes.Total()
-	statusSection := sectionStyle.Render("  Status Codes") + "\n"
+	statusCodes := vm.StatusCodes
+	statusTitle := "  Status Codes"
+	if m.timeRange != "live" && m.historyData != nil && m.historyData.Summary != nil {
+		statusCodes = m.historyData.Summary.StatusCodes
+		statusTitle = fmt.Sprintf("  Status Codes (%s)", m.timeRange)
+	}
+	total := statusCodes.Total()
+	statusSection := sectionStyle.Render(statusTitle) + "\n"
 
 	codes := []struct {
 		label string
 		count int64
 		style lipgloss.Style
 	}{
-		{"2xx", vm.StatusCodes.S2xx, barFullStyle},
-		{"3xx", vm.StatusCodes.S3xx, bar3xxStyle},
-		{"4xx", vm.StatusCodes.S4xx, bar4xxStyle},
-		{"5xx", vm.StatusCodes.S5xx, bar5xxStyle},
+		{"2xx", statusCodes.S2xx, barFullStyle},
+		{"3xx", statusCodes.S3xx, bar3xxStyle},
+		{"4xx", statusCodes.S4xx, bar4xxStyle},
+		{"5xx", statusCodes.S5xx, bar5xxStyle},
 	}
 
 	barMaxWidth := 20
@@ -626,9 +712,11 @@ func (m Model) renderTopPaths() string {
 
 // renderHelp renders the help bar at the bottom.
 func (m Model) renderHelp() string {
+	rangeDesc := "Range: " + m.timeRange
 	keys := []struct{ key, desc string }{
 		{"Tab", "Next VHost"},
 		{"Shift+Tab", "Prev VHost"},
+		{"r", rangeDesc},
 		{"q", "Quit"},
 	}
 
@@ -651,6 +739,36 @@ func truncate(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+// loadHistorySparklines populates the sparkline history buffers from historical query data.
+func (m *Model) loadHistorySparklines(h *metrics.VHostHistory) {
+	if h == nil {
+		return
+	}
+	m.rpsHistory = m.rpsHistory[:0]
+	m.latHistory = m.latHistory[:0]
+	m.errHistory = m.errHistory[:0]
+
+	for _, p := range h.RPS {
+		m.rpsHistory = appendCapped(m.rpsHistory, p.Value, 60)
+	}
+	for _, p := range h.LatencyP95 {
+		m.latHistory = appendCapped(m.latHistory, p.Value, 60)
+	}
+	for _, p := range h.ErrorRate {
+		m.errHistory = appendCapped(m.errHistory, p.Value, 60)
+	}
+}
+
+func fetchHistoryCmd(client *SSEClient, vhost, timeRange string) tea.Cmd {
+	return func() tea.Msg {
+		hist, err := client.FetchHistory(vhost, timeRange)
+		if err != nil {
+			return errMsg{err: err}
+		}
+		return historyMsg{hist: hist}
+	}
 }
 
 // Tea commands to receive messages from SSE channels

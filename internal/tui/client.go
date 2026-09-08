@@ -222,3 +222,40 @@ func (c *SSEClient) handleEvent(eventType, data string) {
 		}
 	}
 }
+
+// FetchHistory requests historical data for a vhost over a time range (e.g. "1h", "24h", "7d").
+func (c *SSEClient) FetchHistory(vhost, timeRange string) (*metrics.VHostHistory, error) {
+	if c.token == "" && c.username != "" && c.password != "" {
+		if err := c.login(); err != nil {
+			return nil, err
+		}
+	}
+
+	reqURL := fmt.Sprintf("%s/api/v1/history?vhost=%s&range=%s", c.url, vhost, timeRange)
+	if c.token != "" {
+		reqURL += "&token=" + c.token
+	}
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("history request returned %d", resp.StatusCode)
+	}
+
+	var hist metrics.VHostHistory
+	if err := json.NewDecoder(resp.Body).Decode(&hist); err != nil {
+		return nil, err
+	}
+
+	return &hist, nil
+}

@@ -173,6 +173,8 @@ function setupEventListeners() {
             if (state.timeRange !== 'live') {
                 fetchHistory();
             } else {
+                const connTitle = els.statConnections.parentElement.querySelector('.stat-title');
+                if (connTitle) connTitle.textContent = 'Active Connections';
                 state.history = {
                     rps: { times: [], values: [] },
                     latency: { times: [], p50: [], p95: [], p99: [] }
@@ -336,18 +338,44 @@ async function fetchHistory() {
 function processHistory(data) {
     if (!data) return;
     
-    if (data.rps) {
-        state.history.rps.times = data.rps.map(p => p[0]);
-        state.history.rps.values = data.rps.map(p => p[1]);
+    if (data.rps && data.rps.length > 0) {
+        state.history.rps.times = data.rps.map(p => p.ts || p[0]);
+        state.history.rps.values = data.rps.map(p => p.value !== undefined ? p.value : p[1]);
         rpsChart.setData([state.history.rps.times, state.history.rps.values]);
+    } else {
+        rpsChart.setData([[], []]);
     }
     
-    if (data.latency_p50 && data.latency_p95 && data.latency_p99) {
-        state.history.latency.times = data.latency_p50.map(p => p[0]);
-        state.history.latency.p50 = data.latency_p50.map(p => p[1]);
-        state.history.latency.p95 = data.latency_p95.map(p => p[1]);
-        state.history.latency.p99 = data.latency_p99.map(p => p[1]);
-        latencyChart.setData([state.history.latency.times, state.history.latency.p50, state.history.latency.p95, state.history.latency.p99]);
+    if (data.latency_p95 && data.latency_p95.length > 0) {
+        const times = data.latency_p95.map(p => p.ts || p[0]);
+        const p95Vals = data.latency_p95.map(p => p.value !== undefined ? p.value : p[1]);
+        const p50Vals = data.latency_p50 ? data.latency_p50.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 0.7);
+        const p99Vals = data.latency_p99 ? data.latency_p99.map(p => p.value !== undefined ? p.value : p[1]) : p95Vals.map(v => v * 1.3);
+
+        state.history.latency.times = times;
+        state.history.latency.p50 = p50Vals;
+        state.history.latency.p95 = p95Vals;
+        state.history.latency.p99 = p99Vals;
+        latencyChart.setData([times, p50Vals, p95Vals, p99Vals]);
+    } else {
+        latencyChart.setData([[], [], [], []]);
+    }
+
+    // Update cards and status breakdown from historical summary
+    if (data.summary) {
+        const s = data.summary;
+        els.statRps.textContent = (s.avg_rps || 0).toFixed(1);
+        els.statErrors.textContent = (s.error_rate || 0).toFixed(2) + '%';
+        els.statLatency.textContent = (s.avg_latency || 0).toFixed(1) + 'ms';
+        els.statConnections.textContent = s.total_requests ? s.total_requests.toLocaleString() : '0';
+        // Label active connections card as Total Requests during historical view
+        const connTitle = els.statConnections.parentElement.querySelector('.stat-title');
+        if (connTitle) connTitle.textContent = state.timeRange === 'live' ? 'Active Connections' : 'Total Requests';
+        els.statUv.textContent = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
+
+        if (s.status_codes) {
+            updateECharts(s.status_codes, null);
+        }
     }
 }
 

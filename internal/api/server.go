@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kimusan/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/storage"
 	"github.com/kimusan/nginxplorer/web"
 )
 
@@ -26,15 +27,16 @@ type Server struct {
 
 // ServerConfig holds configuration for the HTTP server.
 type ServerConfig struct {
-	Bind  string
-	Auth  AuthConfig
-	Store *metrics.Store
+	Bind     string
+	Auth     AuthConfig
+	Store    *metrics.Store
+	SQLStore *storage.SQLiteStore
 }
 
 // NewServer creates a new HTTP server with all routes configured.
 func NewServer(cfg ServerConfig) *Server {
 	auth := NewAuthManager(cfg.Auth)
-	handlers := NewHandlers(cfg.Store)
+	handlers := NewHandlers(cfg.Store, cfg.SQLStore)
 	sseBroker := NewSSEBroker(cfg.Store)
 
 	s := &Server{

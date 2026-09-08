@@ -7,16 +7,20 @@ import (
 	"time"
 
 	"github.com/kimusan/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/storage"
 )
 
-// Handlers holds the HTTP API route handlers.
 type Handlers struct {
-	store *metrics.Store
+	store    *metrics.Store
+	sqlStore *storage.SQLiteStore
 }
 
 // NewHandlers creates a new Handlers instance.
-func NewHandlers(store *metrics.Store) *Handlers {
-	return &Handlers{store: store}
+func NewHandlers(store *metrics.Store, sqlStore *storage.SQLiteStore) *Handlers {
+	return &Handlers{
+		store:    store,
+		sqlStore: sqlStore,
+	}
 }
 
 // HandleMetrics returns the current metrics snapshot as JSON.
@@ -53,37 +57,62 @@ func (h *Handlers) HandleHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	duration := parseDuration(rangeStr)
+	now := time.Now()
+	from := now.Add(-duration)
 
-	// If requesting "all" vhosts, aggregate
-	if vhost == "all" || vhost == "_all" {
-		names := h.store.VHostNames()
-		allHistory := make(map[string]*metrics.VHostHistory)
-		for _, name := range names {
-			history := h.store.GetHistory(name, duration)
-			if history != nil {
-				allHistory[name] = history
-			}
+	var history *metrics.VHostHistory
+
+	// First try querying SQLite storage if available
+	if h.sqlStore != nil {
+		var err error
+		history, err = h.sqlStore.QueryHistory(r.Context(), vhost, from, now)
+		if err != nil {
+			slog.Debug("failed to query SQLite history, falling back to memory", "error", err)
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"vhosts":  names,
-			"history": allHistory,
-		})
-		return
 	}
 
-	history := h.store.GetHistory(vhost, duration)
+	// Fallback to in-memory ring buffer if database returned no points or unavailable
+	if history == nil || len(history.RPS) == 0 {
+		if vhost == "all" || vhost == "_all" {
+			names := h.store.VHostNames()
+			agg := &metrics.VHostHistory{
+				RPS:        make([]metrics.HistoryPoint, 0),
+				LatencyP95: make([]metrics.HistoryPoint, 0),
+				ErrorRate:  make([]metrics.HistoryPoint, 0),
+				Bandwidth:  make([]metrics.HistoryPoint, 0),
+				Summary:    &metrics.HistorySummary{},
+			}
+			for _, name := range names {
+				vhHistory := h.store.GetHistory(name, duration)
+				if vhHistory != nil {
+					// Merge points
+					for i, p := range vhHistory.RPS {
+						if i < len(agg.RPS) {
+							agg.RPS[i].Value += p.Value
+						} else {
+							agg.RPS = append(agg.RPS, p)
+						}
+					}
+				}
+			}
+			history = agg
+		} else {
+			history = h.store.GetHistory(vhost, duration)
+		}
+	}
+
 	if history == nil {
-		http.Error(w, "vhost not found", http.StatusNotFound)
-		return
+		history = &metrics.VHostHistory{
+			RPS:        make([]metrics.HistoryPoint, 0),
+			LatencyP95: make([]metrics.HistoryPoint, 0),
+			ErrorRate:  make([]metrics.HistoryPoint, 0),
+			Bandwidth:  make([]metrics.HistoryPoint, 0),
+			Summary:    &metrics.HistorySummary{},
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"vhost":   vhost,
-		"history": history,
-	})
+	json.NewEncoder(w).Encode(history)
 }
 
 // HandleHealthz is a simple health check endpoint.

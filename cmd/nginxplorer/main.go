@@ -176,9 +176,10 @@ func main() {
 
 	// Start HTTP server
 	server := api.NewServer(api.ServerConfig{
-		Bind:  cfg.Server.Bind,
-		Auth:  authCfg,
-		Store: store,
+		Bind:     cfg.Server.Bind,
+		Auth:     authCfg,
+		Store:    store,
+		SQLStore: sqlStore,
 	})
 
 	// Handle shutdown signals

@@ -112,12 +112,25 @@ type HistoryPoint struct {
 	Value     float64 `json:"value"` // Metric value
 }
 
+// HistorySummary holds aggregated totals for a historical query period.
+type HistorySummary struct {
+	TotalRequests  int64       `json:"total_requests"`
+	AvgRPS         float64     `json:"avg_rps"`
+	AvgLatency     float64     `json:"avg_latency"`
+	ErrorRate      float64     `json:"error_rate"`
+	StatusCodes    StatusCodes `json:"status_codes"`
+	TotalBytesIn   int64       `json:"total_bytes_in"`
+	TotalBytesOut  int64       `json:"total_bytes_out"`
+	UniqueVisitors int64       `json:"unique_visitors"`
+}
+
 // VHostHistory holds historical time series data for a single vhost.
 type VHostHistory struct {
-	RPS       []HistoryPoint `json:"rps"`
-	LatencyP95 []HistoryPoint `json:"latency_p95"`
-	ErrorRate []HistoryPoint `json:"error_rate"`
-	Bandwidth []HistoryPoint `json:"bandwidth"`
+	RPS        []HistoryPoint  `json:"rps"`
+	LatencyP95 []HistoryPoint  `json:"latency_p95"`
+	ErrorRate  []HistoryPoint  `json:"error_rate"`
+	Bandwidth  []HistoryPoint  `json:"bandwidth"`
+	Summary    *HistorySummary `json:"summary,omitempty"`
 }
 
 // HistorySnapshot is the full historical data sent on initial client connection.
