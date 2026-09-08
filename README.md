@@ -10,32 +10,11 @@
 
 ## 📸 Screenshots
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│ NginXplorer v0.1.0                    [Status: ONLINE]          Up: 4d 12h 31m 15s     │
-├────────────────────────────────────────────────────────────────────────────────────────┤
-│ Active: 142   │ Reading: 4   │ Writing: 38   │ Waiting: 100   │ Req/s: 1,284.5         │
-├────────────────────────────────────────────────────────────────────────────────────────┤
-│ [Requests / Second (Last 60s)]                                                         │
-│  2.0k ┤                  ╭──╮                                                          │
-│  1.5k ┤        ╭──╮  ╭───╯  ╰──╮                                                       │
-│  1.0k ┤───╭────╯  ╰──╯         ╰──╮                                                    │
-│  500  ┤   │                       ╰─────────                                           │
-├───────────────────────────────┬────────────────────────────────────────────────────────┤
-│ Virtual Hosts (Top by Req/s)  │ Status Codes Breakdown (Live)                          │
-│ • api.example.com    (842 r/s)│  2xx Success:  ■■■■■■■■■■■■■■■■■■■■■■■■ 94.2%          │
-│ • www.example.com    (312 r/s)│  3xx Redirect: ■■ 3.8%                                 │
-│ • auth.example.com   (130 r/s)│  4xx Client:   ■ 1.6%                                  │
-│                               │  5xx Server:   ▫ 0.4%                                  │
-├───────────────────────────────┴────────────────────────────────────────────────────────┤
-│ Top Endpoints (p95 Latency)                                                            │
-│ • POST /api/v1/checkout   — 124 r/s — p50: 18ms  p90: 42ms  p99: 110ms                 │
-│ • GET  /api/v1/products   — 340 r/s — p50: 4ms   p90: 12ms  p99: 28ms                  │
-│ • GET  /static/bundle.js  — 480 r/s — p50: 1ms   p90: 2ms   p99: 5ms                   │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+### Web Dashboard
+![NginXplorer Web Dashboard](assets/screenshot-web.png)
 
-*(Web dashboard & TUI screenshots coming soon)*
+### Terminal UI (TUI)
+![NginXplorer Terminal UI](assets/screenshot-tui.png)
 
 ---
 
