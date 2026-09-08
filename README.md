@@ -197,13 +197,13 @@ Create a systemd unit file at `/etc/systemd/system/nginxplorer.service`:
 [Unit]
 Description=NginXplorer - Real-time Nginx Statistics
 After=network.target nginx.service
-Requires=nginx.service
+Wants=nginx.service
 
 [Service]
 Type=simple
 User=root
 Group=root
-ExecStart=/usr/local/bin/nginxplorer --config /etc/nginxplorer/config.yaml
+ExecStart=/usr/bin/nginxplorer --config /etc/nginxplorer/config.yaml
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=65535
@@ -224,6 +224,122 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now nginxplorer
 sudo systemctl status nginxplorer
 ```
+
+---
+
+## 🌐 Production & Remote Access Setup
+
+To expose NginXplorer securely on a subdomain (e.g. `https://stats.example.com`) with HTTPS and authentication:
+
+### 1. Configure Password Authentication
+
+Generate a secure bcrypt hash for your password:
+
+```bash
+nginxplorer hash-password
+# Enter password: MySuperSecretPassword!
+```
+
+Add the generated hash to `/etc/nginxplorer/config.yaml`:
+
+```yaml
+server:
+  bind: "127.0.0.1:9100"  # Keep bound to localhost behind Nginx
+
+auth:
+  enabled: true
+  users:
+    - username: admin
+      password_hash: "$2a$10$..."  # Paste generated hash here
+```
+
+### 2. Configure Nginx Reverse Proxy with SSE Support
+
+Create `/etc/nginx/sites-available/stats.example.com`:
+
+```nginx
+server {
+    listen 80;
+    listen [::]:80;
+    server_name stats.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:9100;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Crucial for real-time Server-Sent Events (SSE):
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 24h;
+    }
+}
+```
+
+Enable the site and test configuration:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/stats.example.com /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 3. Obtain Free HTTPS Certificate with Certbot
+
+```bash
+sudo certbot --nginx -d stats.example.com
+```
+
+---
+
+## 🔍 Troubleshooting & Known Pitfalls
+
+### 1. Nginx `access_log` in Virtual Hosts Overriding Global Logging
+* **Symptom**: NginXplorer is running, but you only see `All VHosts` and no virtual hosts appear even when browsing websites.
+* **Cause**: In Nginx, if an individual `server { ... }` block specifies its own `access_log`, it **completely overrides** any global `access_log` defined in `http { ... }` or `conf.d/`.
+* **Fix**: Ensure the syslog streaming directive is added inside your active virtual host blocks (Nginx allows multiple `access_log` lines per server block):
+  ```nginx
+  server {
+      server_name example.com;
+      access_log /var/log/nginx/example.com.log;
+      # Add this line to stream to NginXplorer:
+      access_log syslog:server=unix:/var/run/nginxplorer.sock,tag=nginx nginxplorer;
+      ...
+  }
+  ```
+
+### 2. Socket Permission Denied (`/var/run/nginxplorer.sock`)
+* **Symptom**: Nginx error log `/var/log/nginx/error.log` reports:
+  `[alert] connect() failed (13: Permission denied) while logging to syslog, server: unix:/var/run/nginxplorer.sock`
+* **Cause**: NginXplorer runs as root (or your user), creating the socket with restricted permissions (`0660`). Nginx worker processes run as an unprivileged user (`www-data` or `nginx`) and cannot write to it.
+* **Fix**: NginXplorer automatically sets `0666` on creation. If running an older build, ensure the socket file has write permissions for the web server user:
+  ```bash
+  sudo chmod 0666 /var/run/nginxplorer.sock
+  sudo systemctl reload nginx
+  ```
+
+### 3. Only `/index.php` Shown Instead of Real URLs (WordPress & CMS)
+* **Symptom**: Top Paths table only shows `/index.php` for all visitor requests.
+* **Cause**: Standard PHP-FPM / WordPress configs use `try_files $uri $uri/ /index.php?$args;`. In Nginx, `$uri` holds the internal rewritten path (`/index.php`), not what the visitor typed.
+* **Fix**: In `/etc/nginx/conf.d/nginxplorer-log.conf`, make sure `"uri":"$request_uri"` is used instead of `"$uri"`. `$request_uri` captures the true requested path and permalink before internal rewrites.
+
+### 4. Cloudflare `ERR_SSL_VERSION_OR_CIPHER_MISMATCH` on Sub-subdomains
+* **Symptom**: Browser throws an SSL handshake error when accessing `https://sub.sub.domain.com` (e.g. `stats.dublin.example.com`).
+* **Cause**: Cloudflare Free Universal SSL only covers single-level wildcards (`*.example.com`). It does **not** cover multi-level subdomains (`*.*.example.com`).
+* **Fix**: In your Cloudflare DNS dashboard, change the DNS record for `stats.dublin` from **Proxied (Orange Cloud)** to **DNS Only (Grey Cloud)** so your browser connects directly to the Let's Encrypt certificate on your Nginx server.
+
+### 5. Port 9100 Already in Use
+* **Symptom**: Systemd logs report: `listen tcp 127.0.0.1:9100: bind: address already in use`.
+* **Cause**: A manual foreground or background instance of `nginxplorer` was started before starting the systemd service.
+* **Fix**: Find and terminate the existing process before enabling the service:
+  ```bash
+  sudo fuser -k 9100/tcp
+  sudo systemctl restart nginxplorer
+  ```
 
 ---
 
@@ -572,11 +688,11 @@ make clean
   - [x] Real-time Server-Sent Events (SSE) broadcaster (`internal/api`)
   - [x] Embedded responsive web dashboard (`web/`)
 
-- [ ] **Phase 2: Terminal UI (TUI)**
-  - [ ] Interactive Bubble Tea dashboard (`internal/tui`)
-  - [ ] Terminal sparklines and real-time ASCII charts
-  - [ ] Keyboard navigation for inspecting vhosts and drill-downs
-  - [ ] Headless/SSH remote attachment mode
+- [x] **Phase 2: Terminal UI (TUI)**
+  - [x] Interactive Bubble Tea dashboard (`internal/tui`)
+  - [x] Terminal sparklines and real-time ASCII charts
+  - [x] Keyboard navigation for inspecting vhosts and drill-downs
+  - [x] Headless/SSH remote attachment mode
 
 - [ ] **Phase 3: Alerting & Ecosystem**
   - [ ] Real-time threshold alerting (5xx spikes, latency degradation, upstream outages)
