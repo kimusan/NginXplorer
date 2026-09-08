@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -116,6 +117,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connected = true
 		m.lastUpdate = time.Now()
 		m.lastError = ""
+		if msg.snap != nil && len(msg.snap.VHosts) > 0 {
+			m.syncVHosts(msg.snap.VHosts)
+		}
 		m.updateHistory()
 		return m, waitForSnapshot(m.client)
 
@@ -143,6 +147,25 @@ func (m *Model) updateHistory() {
 	m.rpsHistory = appendCapped(m.rpsHistory, vm.RPS, 60)
 	m.latHistory = appendCapped(m.latHistory, vm.Latency.P95, 60)
 	m.errHistory = appendCapped(m.errHistory, vm.ErrorRate, 60)
+}
+
+// syncVHosts updates the known vhost list from the incoming snapshot map
+func (m *Model) syncVHosts(vhostMap map[string]metrics.VHostMetrics) {
+	existing := make(map[string]bool)
+	for _, v := range m.vhosts {
+		existing[v] = true
+	}
+	changed := false
+	for name := range vhostMap {
+		if !existing[name] {
+			m.vhosts = append(m.vhosts, name)
+			existing[name] = true
+			changed = true
+		}
+	}
+	if changed {
+		sort.Strings(m.vhosts)
+	}
 }
 
 func appendCapped(s []float64, v float64, max int) []float64 {
