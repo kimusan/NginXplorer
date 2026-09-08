@@ -10,7 +10,10 @@ const state = {
         latency: { times: [], p50: [], p95: [], p99: [] }
     },
     vhosts: new Set(),
-    eventSource: null
+    eventSource: null,
+    lastStatusCodes: null,
+    lastLatencyBuckets: null,
+    lastBotTraffic: null
 };
 
 // UI Elements
@@ -69,12 +72,34 @@ function initTheme() {
     document.documentElement.setAttribute('data-theme', state.theme);
 }
 
+function getThemeColors() {
+    const isDark = (state.theme !== 'light');
+    return {
+        isDark,
+        // High contrast axis text: light gray (#9ca3af) in dark mode, dark slate (#4b5563) in light mode
+        textSecondary: isDark ? '#9ca3af' : '#4b5563',
+        textPrimary: isDark ? '#f3f4f6' : '#111827',
+        bgSurface: isDark ? '#1e1e1e' : '#ffffff',
+        gridLine: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+        axisLine: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+    };
+}
+
 function toggleTheme() {
     state.theme = state.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', state.theme);
     localStorage.setItem('theme', state.theme);
     
-    // Re-render charts for theme
+    // Re-draw uPlot charts with updated axis stroke & grid
+    if (rpsChart) rpsChart.redraw();
+    if (latencyChart) latencyChart.redraw();
+
+    // Re-render ECharts with new theme colors
+    updateECharts(state.lastStatusCodes || {}, state.lastLatencyBuckets || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    if (clientTypeChart) {
+        updateClientTypeChart(state.lastBotTraffic || { human: 0, good_bot: 0, bad_bot: 0 });
+    }
+
     if (statusChart) statusChart.resize();
     if (latencyHistChart) latencyHistChart.resize();
     if (clientTypeChart) clientTypeChart.resize();
@@ -109,14 +134,16 @@ function initCharts() {
         ],
         axes: [
             {
-                grid: { show: true, stroke: "rgba(128,128,128,0.2)" },
+                grid: { show: true, stroke: () => getThemeColors().gridLine },
+                ticks: { show: true, stroke: () => getThemeColors().axisLine },
                 font: "11px system-ui",
-                stroke: "var(--text-secondary)"
+                stroke: () => getThemeColors().textSecondary
             },
             {
-                grid: { show: true, stroke: "rgba(128,128,128,0.2)" },
+                grid: { show: true, stroke: () => getThemeColors().gridLine },
+                ticks: { show: true, stroke: () => getThemeColors().axisLine },
                 font: "11px system-ui",
-                stroke: "var(--text-secondary)",
+                stroke: () => getThemeColors().textSecondary,
                 values: (u, vals) => vals.map(v => v != null ? v.toFixed(1) : "")
             }
         ]
@@ -141,11 +168,17 @@ function initCharts() {
             { label: "p99", stroke: "#ef4444", width: 2, points: { show: (u, seriesIdx) => Boolean(u.data[seriesIdx] && u.data[seriesIdx].length <= 5) } }
         ],
         axes: [
-            { grid: { stroke: "rgba(128,128,128,0.2)" }, font: "11px system-ui", stroke: "var(--text-secondary)" },
             {
-                grid: { stroke: "rgba(128,128,128,0.2)" },
+                grid: { stroke: () => getThemeColors().gridLine },
+                ticks: { stroke: () => getThemeColors().axisLine },
                 font: "11px system-ui",
-                stroke: "var(--text-secondary)",
+                stroke: () => getThemeColors().textSecondary
+            },
+            {
+                grid: { stroke: () => getThemeColors().gridLine },
+                ticks: { stroke: () => getThemeColors().axisLine },
+                font: "11px system-ui",
+                stroke: () => getThemeColors().textSecondary,
                 values: (u, vals) => vals.map(v => v != null ? Math.round(v) + "ms" : "")
             }
         ]
@@ -202,11 +235,13 @@ function initCharts() {
 
 function updateClientTypeChart(botTraffic) {
     if (!clientTypeChart) return;
-    if (!botTraffic) botTraffic = { human: 0, good_bot: 0, bad_bot: 0 };
+    if (botTraffic) state.lastBotTraffic = botTraffic;
+    const currentTraffic = botTraffic || state.lastBotTraffic || { human: 0, good_bot: 0, bad_bot: 0 };
+    const theme = getThemeColors();
 
-    const human = botTraffic.human || 0;
-    const goodBot = botTraffic.good_bot || 0;
-    const badBot = botTraffic.bad_bot || 0;
+    const human = currentTraffic.human || 0;
+    const goodBot = currentTraffic.good_bot || 0;
+    const badBot = currentTraffic.bad_bot || 0;
     const total = human + goodBot + badBot;
 
     const data = [
@@ -225,7 +260,7 @@ function updateClientTypeChart(botTraffic) {
             bottom: 0,
             itemWidth: 10,
             itemHeight: 10,
-            textStyle: { color: 'var(--text-secondary)', fontSize: 11 }
+            textStyle: { color: theme.textSecondary, fontSize: 11 }
         },
         series: [{
             name: 'Client Types',
@@ -235,13 +270,13 @@ function updateClientTypeChart(botTraffic) {
             avoidLabelOverlap: false,
             itemStyle: {
                 borderRadius: 6,
-                borderColor: 'var(--bg-card)',
+                borderColor: theme.bgSurface,
                 borderWidth: 2
             },
             label: {
                 show: total > 0,
                 formatter: '{d}%',
-                color: 'var(--text-primary)',
+                color: theme.textPrimary,
                 fontSize: 11
             },
             data: total > 0 ? data : [
@@ -252,12 +287,19 @@ function updateClientTypeChart(botTraffic) {
 }
 
 function updateECharts(statusCodes, latencyBuckets) {
-    if (statusChart && statusCodes) {
+    const theme = getThemeColors();
+    if (statusCodes) state.lastStatusCodes = statusCodes;
+    if (latencyBuckets) state.lastLatencyBuckets = latencyBuckets;
+
+    const currentStatusCodes = statusCodes || state.lastStatusCodes;
+    const currentLatencyBuckets = latencyBuckets || state.lastLatencyBuckets;
+
+    if (statusChart && currentStatusCodes) {
         const statusData = [
-            { value: statusCodes['2xx'] || 0, name: '2xx', itemStyle: { color: '#10b981' } },
-            { value: statusCodes['3xx'] || 0, name: '3xx', itemStyle: { color: '#3b82f6' } },
-            { value: statusCodes['4xx'] || 0, name: '4xx', itemStyle: { color: '#f59e0b' } },
-            { value: statusCodes['5xx'] || 0, name: '5xx', itemStyle: { color: '#ef4444' } }
+            { value: currentStatusCodes['2xx'] || 0, name: '2xx', itemStyle: { color: '#10b981' } },
+            { value: currentStatusCodes['3xx'] || 0, name: '3xx', itemStyle: { color: '#3b82f6' } },
+            { value: currentStatusCodes['4xx'] || 0, name: '4xx', itemStyle: { color: '#f59e0b' } },
+            { value: currentStatusCodes['5xx'] || 0, name: '5xx', itemStyle: { color: '#ef4444' } }
         ];
         statusChart.setOption({
             tooltip: { trigger: 'item' },
@@ -265,12 +307,17 @@ function updateECharts(statusCodes, latencyBuckets) {
                 type: 'pie',
                 radius: ['40%', '70%'],
                 data: statusData,
-                label: { color: 'var(--text-primary)' }
+                itemStyle: {
+                    borderRadius: 4,
+                    borderColor: theme.bgSurface,
+                    borderWidth: 2
+                },
+                label: { color: theme.textPrimary }
             }]
         });
     }
 
-    if (latencyHistChart && latencyBuckets) {
+    if (latencyHistChart && currentLatencyBuckets) {
         const latAxis = ['<10ms', '10-20', '20-50', '50-100', '100-200', '200-500', '500-1s', '1-2s', '2-5s', '>5s'];
         latencyHistChart.setOption({
             tooltip: {
@@ -290,22 +337,22 @@ function updateECharts(statusCodes, latencyBuckets) {
                 type: 'category',
                 data: latAxis,
                 axisLabel: {
-                    color: 'var(--text-secondary)',
+                    color: theme.textSecondary,
                     fontSize: 10,
                     interval: 0,
                     rotate: 25
                 },
-                axisLine: { lineStyle: { color: 'rgba(128,128,128,0.3)' } }
+                axisLine: { lineStyle: { color: theme.axisLine } }
             },
             yAxis: {
                 type: 'value',
                 minInterval: 1,
-                axisLabel: { color: 'var(--text-secondary)', fontSize: 10 },
-                splitLine: { lineStyle: { color: 'rgba(128,128,128,0.15)' } }
+                axisLabel: { color: theme.textSecondary, fontSize: 10 },
+                splitLine: { lineStyle: { color: theme.gridLine } }
             },
             series: [{
                 type: 'bar',
-                data: latencyBuckets,
+                data: currentLatencyBuckets,
                 itemStyle: {
                     color: '#8b5cf6',
                     borderRadius: [4, 4, 0, 0]

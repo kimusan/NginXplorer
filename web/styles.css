@@ -314,6 +314,26 @@ body {
     overflow: hidden;
 }
 
+/* uPlot Legend & Tooltip theme integration */
+.u-legend {
+    color: var(--text-secondary) !important;
+    font-size: 11px !important;
+    padding: 6px 0 2px 0 !important;
+}
+
+.u-legend th {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+.u-legend .u-value {
+    color: var(--text-primary) !important;
+}
+
+.u-cursor-x, .u-cursor-y {
+    border-color: var(--text-secondary) !important;
+}
+
 .echarts-chart {
     width: 100%;
     height: 280px;
