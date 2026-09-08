@@ -13,7 +13,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -30,6 +29,7 @@ import (
 	"github.com/kimusan/nginxplorer/internal/metrics"
 	"github.com/kimusan/nginxplorer/internal/storage"
 	"github.com/kimusan/nginxplorer/internal/tui"
+	"golang.org/x/term"
 )
 
 var version = "dev"
@@ -63,7 +63,23 @@ func main() {
 
 	// TUI mode — connect to running daemon and display terminal dashboard
 	if *tuiMode {
-		if err := tui.Run(*connectAddr, *authToken, *authUser, *authPass); err != nil {
+		user := *authUser
+		pass := *authPass
+		token := *authToken
+
+		// If username is provided without a password or token, securely prompt for password (masked input)
+		if user != "" && pass == "" && token == "" {
+			fmt.Printf("Enter password for %s: ", user)
+			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+			fmt.Println() // newline after hidden input
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading password: %v\n", err)
+				os.Exit(1)
+			}
+			pass = strings.TrimSpace(string(bytePassword))
+		}
+
+		if err := tui.Run(*connectAddr, token, user, pass); err != nil {
 			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 			os.Exit(1)
 		}
@@ -240,13 +256,13 @@ func setupLogging(cfg config.LogConfig, debug bool) {
 // hashPasswordCommand implements the `nginxplorer hash-password` subcommand.
 func hashPasswordCommand() {
 	fmt.Print("Enter password: ")
-	reader := bufio.NewReader(os.Stdin)
-	password, err := reader.ReadString('\n')
+	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Println()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading password: %v\n", err)
 		os.Exit(1)
 	}
-	password = strings.TrimSpace(password)
+	password := strings.TrimSpace(string(bytePassword))
 
 	if password == "" {
 		fmt.Fprintln(os.Stderr, "Password cannot be empty")
