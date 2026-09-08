@@ -36,6 +36,8 @@ import (
 var version = "dev"
 
 func main() {
+	api.Version = version
+
 	// Parse command line flags
 	configPath := flag.String("config", "", "Path to configuration file")
 	tuiMode := flag.Bool("tui", false, "Start in TUI mode (terminal dashboard)")
@@ -45,7 +47,14 @@ func main() {
 	authToken := flag.String("token", "", "Authentication token for TUI mode")
 	authUser := flag.String("user", "", "Username for TUI authentication")
 	authPass := flag.String("pass", "", "Password for TUI authentication")
+	showVersion := flag.Bool("v", false, "Print version and exit")
+	showVersionLong := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion || *showVersionLong {
+		fmt.Printf("nginxplorer %s\n", version)
+		return
+	}
 
 	// Handle subcommands
 	if flag.NArg() > 0 {
