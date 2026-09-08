@@ -16,6 +16,7 @@ const state = {
 // UI Elements
 const els = {
     themeToggle: document.getElementById('theme-toggle'),
+    themeToggleTopbar: document.getElementById('theme-toggle-topbar'),
     vhostList: document.getElementById('vhost-list'),
     vhostSelect: document.getElementById('vhost-select'),
     pauseToggle: document.getElementById('pause-toggle'),
@@ -34,6 +35,7 @@ const els = {
     statConnections: document.getElementById('stat-connections'),
     trendConnections: document.getElementById('trend-connections'),
     statUv: document.getElementById('stat-uv'),
+    statUvBottom: document.getElementById('stat-uv-bottom'),
     
     // Tables
     topPathsThead: document.querySelector('#top-paths-table thead tr'),
@@ -51,6 +53,10 @@ const els = {
 
 // Charts
 let rpsChart, latencyChart, statusChart, latencyHistChart;
+
+function getChartHeight() {
+    return window.innerWidth <= 768 ? (window.innerWidth <= 420 ? 195 : 220) : 280;
+}
 
 // Initialize
 function init() {
@@ -75,10 +81,15 @@ function toggleTheme() {
 }
 
 function initCharts() {
+    const rpsEl = document.getElementById('chart-rps');
+    const latencyEl = document.getElementById('chart-latency');
+    const initialHeight = getChartHeight();
+    const initialWidth = (rpsEl && rpsEl.clientWidth) ? rpsEl.clientWidth : (window.innerWidth <= 768 ? window.innerWidth - 48 : 400);
+
     // uPlot RPS
     const rpsOpts = {
-        width: els.statRps.parentElement.parentElement.parentElement.querySelector('#chart-rps').clientWidth || 400,
-        height: 300,
+        width: initialWidth,
+        height: initialHeight,
         series: [
             {},
             {
@@ -91,22 +102,22 @@ function initCharts() {
         axes: [
             {
                 grid: { show: true, stroke: "rgba(128,128,128,0.2)" },
-                font: "12px system-ui",
+                font: "11px system-ui",
                 stroke: "var(--text-secondary)"
             },
             {
                 grid: { show: true, stroke: "rgba(128,128,128,0.2)" },
-                font: "12px system-ui",
+                font: "11px system-ui",
                 stroke: "var(--text-secondary)"
             }
         ]
     };
-    rpsChart = new uPlot(rpsOpts, [[], []], document.getElementById('chart-rps'));
+    rpsChart = new uPlot(rpsOpts, [[], []], rpsEl);
 
     // uPlot Latency
     const latencyOpts = {
-        width: els.statRps.parentElement.parentElement.parentElement.querySelector('#chart-latency').clientWidth || 400,
-        height: 300,
+        width: (latencyEl && latencyEl.clientWidth) ? latencyEl.clientWidth : initialWidth,
+        height: initialHeight,
         series: [
             {},
             { label: "p50", stroke: "#10b981", width: 2 },
@@ -114,24 +125,48 @@ function initCharts() {
             { label: "p99", stroke: "#ef4444", width: 2 }
         ],
         axes: [
-            { grid: { stroke: "rgba(128,128,128,0.2)" }, stroke: "var(--text-secondary)" },
-            { grid: { stroke: "rgba(128,128,128,0.2)" }, stroke: "var(--text-secondary)" }
+            { grid: { stroke: "rgba(128,128,128,0.2)" }, font: "11px system-ui", stroke: "var(--text-secondary)" },
+            { grid: { stroke: "rgba(128,128,128,0.2)" }, font: "11px system-ui", stroke: "var(--text-secondary)" }
         ]
     };
-    latencyChart = new uPlot(latencyOpts, [[], [], [], []], document.getElementById('chart-latency'));
+    latencyChart = new uPlot(latencyOpts, [[], [], [], []], latencyEl);
 
     // ECharts
     statusChart = echarts.init(document.getElementById('chart-status'));
     latencyHistChart = echarts.init(document.getElementById('chart-latency-hist'));
 
-    // Resize handlers
+    // ResizeObserver for fluid, robust responsive resizing without overflow
+    const ro = new ResizeObserver((entries) => {
+        const height = getChartHeight();
+        for (let entry of entries) {
+            const width = Math.floor(entry.contentRect.width);
+            if (width <= 0) continue;
+            if (entry.target.id === 'chart-rps' && rpsChart) {
+                rpsChart.setSize({ width, height });
+            } else if (entry.target.id === 'chart-latency' && latencyChart) {
+                latencyChart.setSize({ width, height });
+            } else if (entry.target.id === 'chart-status' && statusChart) {
+                statusChart.resize();
+            } else if (entry.target.id === 'chart-latency-hist' && latencyHistChart) {
+                latencyHistChart.resize();
+            }
+        }
+    });
+
+    if (rpsEl) ro.observe(rpsEl);
+    if (latencyEl) ro.observe(latencyEl);
+    const statusEl = document.getElementById('chart-status');
+    if (statusEl) ro.observe(statusEl);
+    const histEl = document.getElementById('chart-latency-hist');
+    if (histEl) ro.observe(histEl);
+
+    // Fallback on window resize
     window.addEventListener('resize', () => {
-        const rpsWidth = document.getElementById('chart-rps').clientWidth;
-        rpsChart.setSize({ width: rpsWidth, height: 300 });
-        const latWidth = document.getElementById('chart-latency').clientWidth;
-        latencyChart.setSize({ width: latWidth, height: 300 });
-        statusChart.resize();
-        latencyHistChart.resize();
+        const h = getChartHeight();
+        if (rpsEl && rpsChart) rpsChart.setSize({ width: rpsEl.clientWidth || initialWidth, height: h });
+        if (latencyEl && latencyChart) latencyChart.setSize({ width: latencyEl.clientWidth || initialWidth, height: h });
+        if (statusChart) statusChart.resize();
+        if (latencyHistChart) latencyHistChart.resize();
     });
 }
 
@@ -167,11 +202,14 @@ function updateECharts(statusCodes, latencyBuckets) {
 }
 
 function setupEventListeners() {
-    els.themeToggle.addEventListener('click', toggleTheme);
+    if (els.themeToggle) els.themeToggle.addEventListener('click', toggleTheme);
+    if (els.themeToggleTopbar) els.themeToggleTopbar.addEventListener('click', toggleTheme);
     
     els.pauseToggle.addEventListener('click', () => {
         state.isPaused = !state.isPaused;
-        els.pauseToggle.textContent = state.isPaused ? '▶️ Resume' : '⏸️ Pause';
+        const icon = state.isPaused ? '▶️' : '⏸️';
+        const label = state.isPaused ? ' Resume' : ' Pause';
+        els.pauseToggle.innerHTML = `${icon}<span class="btn-text">${label}</span>`;
     });
 
     els.timeRangeBtns.forEach(btn => {
@@ -407,7 +445,9 @@ function processHistory(data) {
         // Label active connections card as Total Requests during historical view
         const connTitle = els.statConnections.parentElement.querySelector('.stat-title');
         if (connTitle) connTitle.textContent = state.timeRange === 'live' ? 'Active Connections' : 'Total Requests';
-        els.statUv.textContent = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
+        const uvFormatted = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
+        els.statUv.textContent = uvFormatted;
+        if (els.statUvBottom) els.statUvBottom.textContent = uvFormatted;
 
         if (s.status_codes) {
             updateECharts(s.status_codes, null);
@@ -477,7 +517,9 @@ function updateCards(m) {
     els.statErrors.textContent = (m.error_rate || 0).toFixed(2) + '%';
     els.statLatency.textContent = (m.latency?.avg || 0).toFixed(1) + 'ms';
     els.statConnections.textContent = m.active_connections || 0;
-    els.statUv.textContent = m.unique_visitors || 0;
+    const uvVal = m.unique_visitors || 0;
+    els.statUv.textContent = uvVal;
+    if (els.statUvBottom) els.statUvBottom.textContent = uvVal;
 }
 
 function updateTimeSeries(ts, m) {

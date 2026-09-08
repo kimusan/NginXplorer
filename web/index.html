@@ -32,12 +32,22 @@
         <main class="main-content">
             <!-- Topbar -->
             <header class="topbar">
-                <div class="topbar-left">
-                    <select id="vhost-select">
-                        <option value="all">All VHosts</option>
-                    </select>
+                <div class="topbar-row-main">
+                    <div class="topbar-brand-mobile">
+                        <h2>📡 NginXplorer</h2>
+                    </div>
+                    <div class="topbar-left">
+                        <select id="vhost-select" aria-label="Select Virtual Host">
+                            <option value="all">All VHosts</option>
+                        </select>
+                    </div>
+                    <div class="topbar-actions">
+                        <button id="theme-toggle-topbar" class="topbar-btn" title="Toggle Theme">🌓</button>
+                        <button id="pause-toggle" class="topbar-btn" title="Pause / Resume Stream">⏸️<span class="btn-text"> Pause</span></button>
+                        <button id="alerts-btn" class="alerts-btn topbar-btn" title="View Alerts">🔔 <span id="alerts-badge" class="badge">0</span></button>
+                    </div>
                 </div>
-                <div class="topbar-right">
+                <div class="topbar-row-ranges">
                     <div class="time-ranges">
                         <button class="active" data-range="live">Live</button>
                         <button data-range="1h">1h</button>
@@ -46,8 +56,6 @@
                         <button data-range="7d">7d</button>
                         <button data-range="30d">30d</button>
                     </div>
-                    <button id="pause-toggle">⏸️ Pause</button>
-                    <button id="alerts-btn" class="alerts-btn" title="View Alerts">🔔 <span id="alerts-badge" class="badge">0</span></button>
                 </div>
             </header>
 
@@ -66,7 +74,7 @@
                         <div class="stat-trend" id="trend-errors"></div>
                     </div>
                     <div class="card stat-card">
-                        <div class="stat-title">Avg Latency</div>
+                        <div class="stat-title">Latency (p95)</div>
                         <div class="stat-value" id="stat-latency">0ms</div>
                         <div class="stat-trend" id="trend-latency"></div>
                     </div>
@@ -75,29 +83,34 @@
                         <div class="stat-value" id="stat-connections">0</div>
                         <div class="stat-trend" id="trend-connections"></div>
                     </div>
+                    <div class="card stat-card">
+                        <div class="stat-title">Visitors (5m)</div>
+                        <div class="stat-value" id="stat-uv">0</div>
+                        <div class="stat-trend" id="trend-uv"></div>
+                    </div>
                 </div>
 
                 <!-- Charts Row 1 -->
                 <div class="chart-row">
-                    <div class="card chart-card">
-                        <h3>Request Rate</h3>
+                    <div class="card chart-card flex-2">
+                        <h3>Traffic (RPS)</h3>
                         <div id="chart-rps" class="uplot-chart"></div>
                     </div>
-                    <div class="card chart-card">
-                        <h3>Response Time</h3>
+                    <div class="card chart-card flex-2">
+                        <h3>Latency</h3>
                         <div id="chart-latency" class="uplot-chart"></div>
                     </div>
                 </div>
 
                 <!-- Charts Row 2 -->
                 <div class="chart-row">
-                    <div class="card chart-card">
+                    <div class="card chart-card flex-1">
                         <h3>Status Codes</h3>
-                        <div id="chart-status" class="echarts-chart" style="height: 300px;"></div>
+                        <div id="chart-status" class="echarts-chart"></div>
                     </div>
-                    <div class="card chart-card">
+                    <div class="card chart-card flex-1">
                         <h3>Latency Distribution</h3>
-                        <div id="chart-latency-hist" class="echarts-chart" style="height: 300px;"></div>
+                        <div id="chart-latency-hist" class="echarts-chart"></div>
                     </div>
                 </div>
 
@@ -123,7 +136,7 @@
                     <div class="card chart-card flex-1">
                         <h3>Unique Visitors</h3>
                         <div class="unique-visitors">
-                            <div class="uv-value" id="stat-uv">0</div>
+                            <div class="uv-value" id="stat-uv-bottom">0</div>
                             <div class="uv-sparkline" id="spark-uv"></div>
                         </div>
                     </div>
