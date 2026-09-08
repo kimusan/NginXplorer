@@ -33,12 +33,19 @@
   - Bandwidth consumption tracking (incoming request bytes and egress payload)
 
 - **🖥️ Dual Interface (Web & TUI)**:
-  - **Embedded Web UI**: Lightweight single-binary dashboard with real-time updates via Server-Sent Events (SSE)
-  - **Terminal UI (TUI)**: Terminal dashboard built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for remote SSH sessions and headless servers
+  - **Embedded Responsive Web UI**: Single-binary dashboard with real-time SSE streaming, fluid auto-sizing charts via `ResizeObserver`, touch-friendly layout, and light/dark theme toggles
+  - **Terminal UI (TUI)**: Interactive terminal dashboard built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for remote SSH sessions and headless servers
 
-- **💾 Historical Persistence**:
+- **📈 Historical Deep-Dive & Persistence**:
   - Embedded SQLite database for zero-config long-term metrics storage
-  - Automated database retention windows and background aggregation rollups
+  - Queryable historical views (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) with aggregate metrics rollups
+  - Automated database retention windows and background aggregation cleanup
+
+- **🔔 Multi-Channel Alerting Engine**:
+  - Real-time incident detection for error rate spikes (5xx/4xx), high p95/avg latency, and traffic drops
+  - Low-traffic dampening (`min_requests` and `min_errors`) to prevent false alarms from sporadic bot scans
+  - Multi-channel notification dispatchers: **ntfy.sh** (mobile push), **Pushbullet**, **Slack / Discord**, and **generic webhooks**
+  - Integrated in-browser alerts modal with active incidents and historical incident logs
 
 - **🔒 Security & Privacy Built-In**:
   - Bcrypt-hashed user authentication for web access
@@ -203,6 +210,39 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now nginxplorer
 sudo systemctl status nginxplorer
 ```
+
+---
+
+## 📟 Terminal UI (TUI) Mode
+
+In addition to the web dashboard, NginXplorer includes a full terminal dashboard powered by Bubble Tea. It attaches directly to a local or remote NginXplorer instance via SSE.
+
+### Starting the TUI
+
+```bash
+# Connect to local daemon (no auth or when auth disabled)
+nginxplorer --tui
+
+# Connect with username — securely prompts for password without leaking into shell history:
+nginxplorer --tui --user admin
+# Enter password for admin: [hidden input]
+
+# Connect to a remote or TLS-secured instance:
+nginxplorer --tui --connect https://stats.example.com --user admin
+
+# Non-interactive / scripted attachment:
+nginxplorer --tui --connect http://127.0.0.1:9100 --user admin --pass MySecretPassword
+```
+
+### TUI Keyboard Shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Tab` / `Shift+Tab` | Cycle through Virtual Hosts |
+| `↑` / `↓` / `j` / `k` | Scroll Virtual Host list |
+| `Space` | Pause / Resume live data stream |
+| `t` | Cycle historical time ranges (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) |
+| `q` / `Ctrl+C` | Exit TUI |
 
 ---
 
@@ -387,6 +427,35 @@ privacy:
   # Don't log query strings
   strip_query_strings: true
 
+# Alerting and Webhook Notifications
+alerts:
+  enabled: true
+  dashboard_url: "https://stats.example.com"
+  cooldown: "10m"
+  rules:
+    - name: "High Error Rate"
+      vhost: "all"            # "all" or specific vhost (e.g. "example.com")
+      metric: "error_rate"    # error_rate, latency_p95, latency_avg, zero_traffic
+      threshold: 5.0          # 5.0%
+      duration: "1m"          # must persist for at least 1 minute
+      min_requests: 20        # dampening: require at least 20 reqs in window (avoids bot false alarms)
+      min_errors: 5           # require at least 5 errors
+    - name: "High Latency"
+      vhost: "all"
+      metric: "latency_p95"
+      threshold: 1500.0       # ms
+      duration: "2m"
+      min_requests: 10
+  channels:
+    - type: "ntfy"
+      url: "https://ntfy.sh/nginxplorer_alert"
+    # - type: "pushbullet"
+    #   api_token: "o.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    # - type: "slack"
+    #   url: "https://hooks.slack.com/services/..."
+    # - type: "discord"
+    #   url: "https://discord.com/api/webhooks/..."
+
 # Logging
 log:
   level: "info"   # debug, info, warn, error
@@ -412,6 +481,11 @@ log:
 | `metrics.visitor_window_minutes`| int | `5` | Sliding window duration for active visitor tracking. |
 | `privacy.anonymize_ips` | boolean | `false` | Masks the final octet of IPv4 / last 80 bits of IPv6 addresses. |
 | `privacy.strip_query_strings` | boolean | `true` | Strips `?query=...` arguments before tracking paths. |
+| `alerts.enabled` | boolean | `false` | Enables the background threshold alerting engine. |
+| `alerts.dashboard_url` | string | `""` | Base dashboard URL included in outgoing notifications. |
+| `alerts.cooldown` | string | `"10m"` | Minimum quiet period between repeat alerts for the same rule. |
+| `alerts.rules` | list | `[]` | List of alerting rules (`error_rate`, `latency_p95`, `zero_traffic`). |
+| `alerts.channels` | list | `[]` | Dispatcher destinations (`ntfy`, `pushbullet`, `slack`, `discord`, `webhook`). |
 | `log.level` | string | `info` | Application log verbosity (`debug`, `info`, `warn`, `error`). |
 | `log.format` | string | `text` | Log output format (`text` or `json`). |
 
@@ -673,11 +747,19 @@ make clean
   - [x] Keyboard navigation for inspecting vhosts and drill-downs
   - [x] Headless/SSH remote attachment mode
 
-- [ ] **Phase 3: Alerting & Ecosystem**
-  - [ ] Real-time threshold alerting (5xx spikes, latency degradation, upstream outages)
-  - [ ] Notification webhooks (Slack, Discord, Telegram, generic HTTP)
+- [x] **Phase 3: Alerting & Mobile Dashboard**
+  - [x] Real-time threshold alerting engine (error rate spikes, latency degradation, zero traffic)
+  - [x] Low-traffic dampening (`min_requests`, `min_errors`) to prevent bot false positives
+  - [x] Multi-channel notification dispatchers (ntfy.sh mobile push, Pushbullet, Slack, Discord, webhook)
+  - [x] Web dashboard alerts modal & notification bell with live firing count
+  - [x] Fluid mobile-responsive layout (`ResizeObserver`, touch scrolling tables, responsive topbar)
+  - [x] Historical time ranges (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) with SQLite rollups
+  - [x] Rolling 60s window tracking for accurate path req/s
+
+- [ ] **Phase 4: Ecosystem & Advanced Telemetry**
   - [ ] Prometheus `/metrics` exporter endpoint
-  - [ ] Mobile-optimized PWA layout
+  - [ ] Telegram notification channel
+  - [ ] Exportable reports (CSV / JSON data dumps)
 
 ---
 
