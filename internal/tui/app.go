@@ -657,10 +657,40 @@ func (m Model) renderMiddleRow() string {
 		}
 	}
 
-	if vhostSection != "" {
-		halfWidth := m.width / 2
+	// Country traffic section (when countries data is available)
+	countrySection := ""
+	if len(vm.TopCountries) > 0 {
+		countrySection = sectionStyle.Render("  Top Countries") + "\n"
+		for i := 0; i < len(vm.TopCountries) && i < 5; i++ {
+			c := vm.TopCountries[i]
+			flag := c.Flag
+			if flag == "" {
+				flag = "🌐"
+			}
+			cName := c.CountryName
+			if cName == "" {
+				cName = c.CountryCode
+			}
+			label := fmt.Sprintf("%s %-12s", flag, truncate(cName, 12))
+			pctStr := fmt.Sprintf("%5.1f%%", c.Percentage)
+			rpsStr := fmt.Sprintf("%5.1frps", c.RPS)
+			countrySection += fmt.Sprintf("  %s %s %s\n",
+				lipgloss.NewStyle().Foreground(colorText).Render(label),
+				lipgloss.NewStyle().Foreground(colorPrimary).Render(rpsStr),
+				lipgloss.NewStyle().Foreground(colorMuted).Render(pctStr),
+			)
+		}
+	}
+
+	halfWidth := m.width / 2
+	rightContent := vhostSection
+	if rightContent == "" {
+		rightContent = countrySection
+	}
+
+	if rightContent != "" {
 		leftBox := lipgloss.NewStyle().Width(halfWidth).Render(statusSection)
-		rightBox := lipgloss.NewStyle().Width(halfWidth).Render(vhostSection)
+		rightBox := lipgloss.NewStyle().Width(halfWidth).Render(rightContent)
 		return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 	}
 

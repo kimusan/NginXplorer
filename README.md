@@ -38,10 +38,17 @@
   - **Embedded Responsive Web UI**: Single-binary dashboard with real-time SSE streaming, fluid auto-sizing charts via `ResizeObserver`, touch-friendly layout, and light/dark theme toggles
   - **Terminal UI (TUI)**: Interactive terminal dashboard built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for remote SSH sessions and headless servers
 
-- **📈 Historical Deep-Dive & Persistence**:
+- **📈 Historical Deep-Dive & Accumulated Analytics**:
   - Embedded SQLite database for zero-config long-term metrics storage
   - Queryable historical views (`Live`, `1h`, `6h`, `24h`, `7d`, `30d`) with aggregate metrics rollups
+  - Full widget historical accumulation: **Top Paths**, **Top Countries**, **Latency Distribution**, **Bot Traffic**, and dynamic **Stat Cards** (Total Requests & Unique Visitors)
+  - Dynamic display: automatically toggles from instantaneous `Req/s` to exact aggregated **`Visits`** counts on historical tables
   - Automated database retention windows and background aggregation cleanup
+
+- **🌍 Geo-Location & Country Traffic Breakdown**:
+  - Zero-touch GeoIP tracking with built-in automatic database downloader (DB-IP Country Lite) and weekly background updates
+  - Country-level traffic distribution with emoji flags (🇩🇰, 🇺🇸, 🇩🇪, 🇮🇪, etc.)
+  - Real-time country request rates alongside accumulated historical visits and percentage traffic shares
 
 - **🔔 Multi-Channel Alerting Engine**:
   - Real-time incident detection for error rate spikes (5xx/4xx), high p95/avg latency, and traffic drops
@@ -294,6 +301,10 @@ server {
     listen [::]:80;
     server_name stats.example.com;
 
+    # Recommended: Disable access logging for the dashboard vhost itself
+    # to avoid polluting metrics and logs with self-monitoring traffic:
+    access_log off;
+
     location / {
         proxy_pass http://127.0.0.1:9100;
         proxy_set_header Host $host;
@@ -439,6 +450,19 @@ privacy:
   # Don't log query strings
   strip_query_strings: true
 
+# Ingestion filtering (exclude self-monitoring dashboard host or specific paths)
+filter:
+  ignore_hosts:
+    - "stats.example.com"
+  ignore_paths:
+    - "/api/v1/"
+
+# Geo-Location Settings
+geoip:
+  enabled: true
+  db_path: "/var/lib/nginxplorer/geoip-country.mmdb"
+  auto_download: true
+
 # Alerting and Webhook Notifications
 alerts:
   enabled: true
@@ -493,6 +517,11 @@ log:
 | `metrics.visitor_window_minutes`| int | `5` | Sliding window duration for active visitor tracking. |
 | `privacy.anonymize_ips` | boolean | `false` | Masks the final octet of IPv4 / last 80 bits of IPv6 addresses. |
 | `privacy.strip_query_strings` | boolean | `true` | Strips `?query=...` arguments before tracking paths. |
+| `filter.ignore_hosts` | list | `[]` | List of virtual hosts to exclude from metrics ingestion (e.g. self-monitoring domain). |
+| `filter.ignore_paths` | list | `[]` | List of URI prefixes to exclude from metrics ingestion (e.g. `["/api/v1/"]`). |
+| `geoip.enabled` | boolean | `true` | Enables automatic GeoIP country resolution and flags. |
+| `geoip.db_path` | string | `/var/lib/nginxplorer/geoip-country.mmdb` | Path to MaxMind / DB-IP Country MMDB database. |
+| `geoip.auto_download` | boolean | `true` | Automatically downloads and updates DB-IP Country Lite (CC BY 4.0). |
 | `alerts.enabled` | boolean | `false` | Enables the background threshold alerting engine. |
 | `alerts.dashboard_url` | string | `""` | Base dashboard URL included in outgoing notifications. |
 | `alerts.cooldown` | string | `"10m"` | Minimum quiet period between repeat alerts for the same rule. |

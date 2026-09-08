@@ -2,6 +2,8 @@ package collector
 
 import (
 	"testing"
+
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 func TestParseStubStatus(t *testing.T) {
@@ -49,5 +51,39 @@ func TestParseStubStatus_Empty(t *testing.T) {
 	_, err := parseStubStatus("")
 	if err == nil {
 		t.Error("expected error for empty input")
+	}
+}
+
+func TestLogStreamCollector_Filtering(t *testing.T) {
+	store := metrics.NewStore(10, 10, 5)
+	defer store.Stop()
+
+	collector := NewLogStreamCollector(
+		"", "", store, false, false,
+		[]string{"stats.dublin.hackspace.tech", "ignored.example.com"},
+		[]string{"/api/v1/", "/healthz"},
+		nil,
+	)
+
+	// 1. Ignored host should not record entry
+	lineIgnoredHost := []byte(`{"host":"stats.dublin.hackspace.tech","uri":"/","status":200,"bytes":100}`)
+	collector.processLine(lineIgnoredHost)
+	if len(store.VHostNames()) != 0 {
+		t.Errorf("expected 0 vhosts for ignored host, got %v", store.VHostNames())
+	}
+
+	// 2. Ignored path should not record entry
+	lineIgnoredPath := []byte(`{"host":"example.com","uri":"/api/v1/alerts","status":200,"bytes":100}`)
+	collector.processLine(lineIgnoredPath)
+	if len(store.VHostNames()) != 0 {
+		t.Errorf("expected 0 vhosts for ignored path, got %v", store.VHostNames())
+	}
+
+	// 3. Allowed host and path should record entry
+	lineAllowed := []byte(`{"host":"example.com","uri":"/index.html","status":200,"bytes":100}`)
+	collector.processLine(lineAllowed)
+	vhosts := store.VHostNames()
+	if len(vhosts) != 1 || vhosts[0] != "example.com" {
+		t.Errorf("expected vhosts [example.com], got %v", vhosts)
 	}
 }

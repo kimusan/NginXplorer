@@ -52,6 +52,25 @@ privacy:
   # Don't log query strings
   strip_query_strings: true
 
+# Ingestion filtering (exclude self-monitoring and unwanted traffic from metrics)
+filter:
+  # List of virtual hosts to ignore (e.g. self-monitoring dashboard host)
+  ignore_hosts:
+    - "stats.dublin.hackspace.tech"
+  # List of URI prefixes to ignore
+  ignore_paths:
+    # - "/api/v1/"
+    # - "/healthz"
+
+# Geo-Location Settings
+geoip:
+  # Enable country resolution and top countries metrics
+  enabled: true
+  # Path to local MaxMind / DB-IP Country .mmdb database
+  db_path: "/var/lib/nginxplorer/geoip-country.mmdb"
+  # Automatically download and refresh DB-IP Country Lite (CC BY 4.0, zero key needed)
+  auto_download: true
+
 # Alerting and Webhook Notifications
 alerts:
   enabled: false

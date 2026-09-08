@@ -23,6 +23,9 @@ type LogEntry struct {
 	UpstreamAddr string  // Upstream server address
 	UserAgent    string  // Client user agent
 	Referer      string  // HTTP referer
+	CountryCode  string  // 2-letter ISO country code e.g. "DK"
+	CountryName  string  // Full country name e.g. "Denmark"
+	CountryFlag  string  // Country flag emoji e.g. "🇩🇰"
 }
 
 // StubStatus represents the parsed output of Nginx's stub_status module.
@@ -71,9 +74,19 @@ type PathStats struct {
 	RPS        float64 `json:"rps"`
 	AvgLatency float64 `json:"avg_latency"` // ms
 	Status2xx  float64 `json:"status_2xx"`  // percentage
-	Count      int64   `json:"-"`           // internal counter
+	Count      int64   `json:"count"`       // total requests
 	TotalTime  float64 `json:"-"`           // internal sum
 	S2xxCount  int64   `json:"-"`           // internal counter
+}
+
+// CountryStats holds aggregated traffic metrics for a single country.
+type CountryStats struct {
+	CountryCode string  `json:"code"`       // 2-letter ISO code e.g. "DK"
+	CountryName string  `json:"name"`       // Full country name e.g. "Denmark"
+	Flag        string  `json:"flag"`       // Emoji flag e.g. "🇩🇰"
+	RPS         float64 `json:"rps"`        // Requests per second in window
+	Percentage  float64 `json:"percentage"` // Percentage of total traffic in window
+	Count       int64   `json:"count"`      // Total requests in window
 }
 
 // VHostMetrics holds the current real-time metrics for a single virtual host.
@@ -87,6 +100,7 @@ type VHostMetrics struct {
 	UniqueVisitors int64           `json:"unique_visitors"`
 	BotTraffic     BotTrafficStats `json:"bot_traffic"`
 	TopPaths       []PathStats     `json:"top_paths"`
+	TopCountries   []CountryStats  `json:"top_countries"`
 }
 
 // GlobalMetrics holds server-wide metrics from stub_status.
@@ -126,6 +140,8 @@ type HistorySummary struct {
 	UniqueVisitors int64           `json:"unique_visitors"`
 	BotTraffic     BotTrafficStats `json:"bot_traffic,omitempty"`
 	LatencyBuckets []int64         `json:"latency_buckets,omitempty"`
+	TopCountries   []CountryStats  `json:"top_countries,omitempty"`
+	TopPaths       []PathStats     `json:"top_paths,omitempty"`
 }
 
 // VHostHistory holds historical time series data for a single vhost.
@@ -207,17 +223,23 @@ type VHostState struct {
 	// Top paths tracking (approximate frequency counting)
 	PathCounts *TopKTracker
 
+	// Country distribution tracking (rolling window)
+	CountryCounts *CountryTracker
+
 	// Historical RPS for trend comparison
 	LastMinuteRPS float64
 	Last5MinRPS   float64
 }
 
+// pathTrackerSlots defines the rolling memory window for path metrics (1 hour = 3600 seconds).
+const pathTrackerSlots = 3600
+
 // TopKTracker maintains rolling window counts of requested paths to calculate accurate req/s.
-// It uses a 60-second ring buffer of 1-second slot counters.
+// It uses a 3600-second ring buffer of 1-second slot counters.
 type TopKTracker struct {
 	mu       sync.Mutex
-	slots    [60]map[string]*pathCounter
-	slotTime [60]int64
+	slots    [pathTrackerSlots]map[string]*pathCounter
+	slotTime [pathTrackerSlots]int64
 	maxItems int
 }
 
@@ -248,7 +270,7 @@ func (t *TopKTracker) Add(path string, latency float64, is2xx bool, unixTime int
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	slotIdx := int(unixTime % 60)
+	slotIdx := int(unixTime % pathTrackerSlots)
 	if slotIdx < 0 {
 		slotIdx = -slotIdx
 	}
@@ -294,8 +316,8 @@ func (t *TopKTracker) evictSlot(m map[string]*pathCounter) {
 	}
 }
 
-// Top returns the top N paths across the rolling window (up to windowSeconds, max 60s).
-// windowSeconds specifies the lookback period and rate divisor.
+// Top returns the top N paths across the rolling window (up to pathTrackerSlots).
+// If n <= 0, returns all active paths in the window.
 func (t *TopKTracker) Top(n int, windowSeconds float64, nowUnix int64) []PathStats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -306,19 +328,21 @@ func (t *TopKTracker) Top(n int, windowSeconds float64, nowUnix int64) []PathSta
 
 	if windowSeconds <= 0 {
 		windowSeconds = 10
-	} else if windowSeconds > 60 {
-		windowSeconds = 60
+	} else if windowSeconds > pathTrackerSlots {
+		windowSeconds = pathTrackerSlots
 	}
 
-	winSecsInt := int64(windowSeconds)
-	minTime := nowUnix - winSecsInt
-
-	// Aggregate path counts over valid active slots in [nowUnix - windowSeconds + 1, nowUnix]
 	aggregated := make(map[string]*pathCounter)
-	for i := 0; i < 60; i++ {
-		st := t.slotTime[i]
-		if st > minTime && st <= nowUnix {
-			for path, pc := range t.slots[i] {
+	lookback := int64(windowSeconds)
+	for i := int64(0); i < lookback; i++ {
+		sec := nowUnix - i
+		slotIdx := int(sec % pathTrackerSlots)
+		if slotIdx < 0 {
+			slotIdx = -slotIdx
+		}
+
+		if t.slotTime[slotIdx] == sec {
+			for path, pc := range t.slots[slotIdx] {
 				agg, ok := aggregated[path]
 				if !ok {
 					agg = &pathCounter{}
@@ -348,7 +372,7 @@ func (t *TopKTracker) Top(n int, windowSeconds float64, nowUnix int64) []PathSta
 		}
 	}
 
-	if n > len(entries) {
+	if n <= 0 || n > len(entries) {
 		n = len(entries)
 	}
 
@@ -371,6 +395,149 @@ func (t *TopKTracker) Top(n int, windowSeconds float64, nowUnix int64) []PathSta
 			Count:      e.pc.count,
 			TotalTime:  e.pc.totalTime,
 			S2xxCount:  e.pc.s2xx,
+		}
+	}
+
+	return result
+}
+
+// countryTrackerSlots defines the rolling memory window for country metrics (1 hour = 3600 seconds).
+const countryTrackerSlots = 3600
+
+// CountryTracker maintains rolling window counts of requests per country.
+// It uses a 3600-second (1 hour) ring buffer of 1-second slot counters.
+type CountryTracker struct {
+	mu       sync.Mutex
+	slots    [countryTrackerSlots]map[string]*countryCounter
+	slotTime [countryTrackerSlots]int64
+	names    map[string]string // code -> full country name
+	flags    map[string]string // code -> emoji flag
+}
+
+type countryCounter struct {
+	count int64
+}
+
+// NewCountryTracker creates a new country traffic tracker.
+func NewCountryTracker() *CountryTracker {
+	t := &CountryTracker{
+		names: make(map[string]string),
+		flags: make(map[string]string),
+	}
+	for i := range t.slots {
+		t.slots[i] = make(map[string]*countryCounter)
+	}
+	return t
+}
+
+// Add records a request from a country at the specified unix timestamp.
+func (t *CountryTracker) Add(code, name, flag string, unixTime int64) {
+	if code == "" {
+		return
+	}
+	if unixTime <= 0 {
+		unixTime = time.Now().Unix()
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if _, ok := t.names[code]; !ok && name != "" {
+		t.names[code] = name
+	}
+	if _, ok := t.flags[code]; !ok && flag != "" {
+		t.flags[code] = flag
+	}
+
+	slotIdx := int(unixTime % countryTrackerSlots)
+	if slotIdx < 0 {
+		slotIdx = -slotIdx
+	}
+
+	if t.slotTime[slotIdx] != unixTime {
+		t.slots[slotIdx] = make(map[string]*countryCounter)
+		t.slotTime[slotIdx] = unixTime
+	}
+
+	slotMap := t.slots[slotIdx]
+	cc, ok := slotMap[code]
+	if !ok {
+		cc = &countryCounter{}
+		slotMap[code] = cc
+	}
+	cc.count++
+}
+
+// Top returns the top N countries across the rolling window (up to countryTrackerSlots).
+// If n <= 0, returns all active countries in the window.
+func (t *CountryTracker) Top(n int, windowSeconds float64, nowUnix int64) []CountryStats {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if windowSeconds <= 0 {
+		windowSeconds = 60
+	}
+	if windowSeconds > countryTrackerSlots {
+		windowSeconds = countryTrackerSlots
+	}
+	if nowUnix <= 0 {
+		nowUnix = time.Now().Unix()
+	}
+
+	aggregated := make(map[string]int64)
+	var grandTotal int64
+
+	lookback := int64(windowSeconds)
+	for i := int64(0); i < lookback; i++ {
+		sec := nowUnix - i
+		slotIdx := int(sec % countryTrackerSlots)
+		if slotIdx < 0 {
+			slotIdx = -slotIdx
+		}
+
+		if t.slotTime[slotIdx] == sec {
+			for code, cc := range t.slots[slotIdx] {
+				aggregated[code] += cc.count
+				grandTotal += cc.count
+			}
+		}
+	}
+
+	type entry struct {
+		code  string
+		count int64
+	}
+
+	entries := make([]entry, 0, len(aggregated))
+	for code, count := range aggregated {
+		entries = append(entries, entry{code, count})
+	}
+
+	// Sort descending by count
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && entries[j].count > entries[j-1].count; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
+
+	if n <= 0 || n > len(entries) {
+		n = len(entries)
+	}
+
+	result := make([]CountryStats, n)
+	for i := 0; i < n; i++ {
+		e := entries[i]
+		pct := 0.0
+		if grandTotal > 0 {
+			pct = (float64(e.count) / float64(grandTotal)) * 100
+		}
+		result[i] = CountryStats{
+			CountryCode: e.code,
+			CountryName: t.names[e.code],
+			Flag:        t.flags[e.code],
+			RPS:         float64(e.count) / windowSeconds,
+			Percentage:  pct,
+			Count:       e.count,
 		}
 	}
 

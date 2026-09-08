@@ -395,3 +395,143 @@ func TestStore_LatencyBuckets(t *testing.T) {
 	}
 }
 
+func TestCountryTracker(t *testing.T) {
+	ct := NewCountryTracker()
+	now := time.Now().Unix()
+
+	ct.Add("DK", "Denmark", "🇩🇰", now)
+	ct.Add("DK", "Denmark", "🇩🇰", now)
+	ct.Add("US", "United States", "🇺🇸", now)
+
+	top := ct.Top(5, 60, now)
+	if len(top) != 2 {
+		t.Fatalf("expected 2 countries, got %d", len(top))
+	}
+
+	if top[0].CountryCode != "DK" || top[0].Count != 2 {
+		t.Errorf("expected top country DK with 2 hits, got %+v", top[0])
+	}
+	if top[1].CountryCode != "US" || top[1].Count != 1 {
+		t.Errorf("expected second country US with 1 hit, got %+v", top[1])
+	}
+	if math.Abs(top[0].Percentage-66.666) > 0.5 {
+		t.Errorf("expected ~66.7%% for DK, got %.2f%%", top[0].Percentage)
+	}
+}
+
+func TestStore_CountryAggregation(t *testing.T) {
+	store := NewStore(10, 10, 5)
+	now := time.Now()
+
+	store.RecordEntry(&LogEntry{
+		Host:        "example.com",
+		RemoteAddr:  "87.62.124.68",
+		CountryCode: "DK",
+		CountryName: "Denmark",
+		CountryFlag: "🇩🇰",
+		Status:      200,
+		Timestamp:   now,
+	})
+	store.RecordEntry(&LogEntry{
+		Host:        "example.com",
+		RemoteAddr:  "8.8.8.8",
+		CountryCode: "US",
+		CountryName: "United States",
+		CountryFlag: "🇺🇸",
+		Status:      200,
+		Timestamp:   now,
+	})
+
+	snap := store.Snapshot()
+	vh := snap.VHosts["example.com"]
+	if len(vh.TopCountries) != 2 {
+		t.Fatalf("expected 2 top countries in snapshot, got %d", len(vh.TopCountries))
+	}
+
+	if vh.TopCountries[0].CountryCode != "DK" && vh.TopCountries[0].CountryCode != "US" {
+		t.Errorf("unexpected country code: %s", vh.TopCountries[0].CountryCode)
+	}
+
+	// Test MinuteCountries
+	minuteCountries := store.MinuteCountries("example.com", now.Unix())
+	if len(minuteCountries) != 2 {
+		t.Fatalf("expected 2 countries in MinuteCountries, got %d", len(minuteCountries))
+	}
+
+	// Test GetHistory has TopCountries in Summary
+	hist := store.GetHistory("example.com", 15*time.Minute)
+	if hist == nil || hist.Summary == nil {
+		t.Fatalf("expected non-nil hist and summary")
+	}
+	if len(hist.Summary.TopCountries) != 2 {
+		t.Fatalf("expected 2 top countries in history summary, got %d", len(hist.Summary.TopCountries))
+	}
+}
+
+func TestCountryTracker_Lookback3600(t *testing.T) {
+	ct := NewCountryTracker()
+	now := time.Now().Unix()
+
+	// Add entry 30 minutes ago (1800s ago)
+	ct.Add("DE", "Germany", "🇩🇪", now-1800)
+	ct.Add("DK", "Denmark", "🇩🇰", now-10)
+
+	// In last 60 seconds, only DK should appear
+	top60s := ct.Top(10, 60, now)
+	if len(top60s) != 1 || top60s[0].CountryCode != "DK" {
+		t.Fatalf("expected only DK in last 60s, got %+v", top60s)
+	}
+
+	// In last 3600 seconds (1 hour), both should appear
+	top1h := ct.Top(10, 3600, now)
+	if len(top1h) != 2 {
+		t.Fatalf("expected 2 countries in 1h lookback, got %d", len(top1h))
+	}
+}
+
+func TestTopKTracker_Lookback3600(t *testing.T) {
+	tk := NewTopKTracker(50)
+	now := time.Now().Unix()
+
+	// Add entry 30 minutes ago (1800s ago)
+	tk.Add("/old-article", 0.05, true, now-1800)
+	tk.Add("/live-feed", 0.02, true, now-10)
+
+	// In last 60 seconds, only /live-feed should appear
+	top60s := tk.Top(10, 60, now)
+	if len(top60s) != 1 || top60s[0].Path != "/live-feed" {
+		t.Fatalf("expected only /live-feed in last 60s, got %+v", top60s)
+	}
+
+	// In last 3600 seconds (1 hour), both should appear
+	top1h := tk.Top(10, 3600, now)
+	if len(top1h) != 2 {
+		t.Fatalf("expected 2 paths in 1h lookback, got %d", len(top1h))
+	}
+}
+
+func TestStore_MinutePathsAndLatency(t *testing.T) {
+	store := NewStore(10, 10, 5)
+	now := time.Now()
+
+	store.RecordEntry(&LogEntry{
+		Host:         "example.com",
+		URI:          "/index.html",
+		RequestTime:  0.015,
+		Status:       200,
+		UserAgent:    "Googlebot/2.1",
+		Timestamp:    now,
+	})
+
+	mPaths := store.MinutePaths("example.com", now.Unix())
+	if len(mPaths) != 1 || mPaths[0].Path != "/index.html" {
+		t.Fatalf("expected /index.html in MinutePaths, got %+v", mPaths)
+	}
+
+	latBuckets := store.MinuteLatencyBuckets("example.com", now)
+	// 0.015s = 15ms -> bucket index 1 (10-20ms)
+	if latBuckets[1] != 1 {
+		t.Errorf("expected 1 request in latency bucket 1, got %+v", latBuckets)
+	}
+}
+

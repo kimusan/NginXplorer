@@ -42,6 +42,18 @@ func TestHandleHistory(t *testing.T) {
 		t.Fatalf("failed to record metrics: %v", err)
 	}
 
+	if err := sqlStore.RecordCountries(context.Background(), now.Add(-5*time.Minute), "example.com", []metrics.CountryStats{
+		{CountryCode: "DK", CountryName: "Denmark", Flag: "🇩🇰", Count: 105},
+	}); err != nil {
+		t.Fatalf("failed to record countries: %v", err)
+	}
+
+	if err := sqlStore.RecordPaths(context.Background(), now.Add(-5*time.Minute), "example.com", []metrics.PathStats{
+		{Path: "/index.html", Count: 105, TotalTime: 1.05, S2xxCount: 100},
+	}); err != nil {
+		t.Fatalf("failed to record paths: %v", err)
+	}
+
 	handlers := NewHandlers(store, sqlStore, nil)
 
 	// 1. Missing vhost param
@@ -74,6 +86,14 @@ func TestHandleHistory(t *testing.T) {
 	if hist.Summary.TotalRequests != 105 {
 		t.Errorf("expected 105 total requests, got %d", hist.Summary.TotalRequests)
 	}
+	if len(hist.Summary.TopCountries) != 1 || hist.Summary.TopCountries[0].CountryCode != "DK" {
+		t.Errorf("expected TopCountries with DK, got %+v", hist.Summary.TopCountries)
+	}
+	if len(hist.Summary.TopPaths) != 1 || hist.Summary.TopPaths[0].Path != "/index.html" {
+		t.Errorf("expected TopPaths with /index.html, got %+v", hist.Summary.TopPaths)
+	} else if hist.Summary.TopPaths[0].Count != 105 {
+		t.Errorf("expected TopPaths count 105, got %d", hist.Summary.TopPaths[0].Count)
+	}
 
 	// 3. Fallback when vhost not in SQLite: query unknown vhost returns empty history struct, not error
 	req = httptest.NewRequest("GET", "/api/v1/history?vhost=unknown.org&range=1h", nil)
@@ -97,7 +117,7 @@ func TestStaticAssets_PWA(t *testing.T) {
 		Bind: ":0",
 	})
 
-	for _, path := range []string{"/manifest.json", "/sw.js", "/icon.svg", "/index.html"} {
+	for _, path := range []string{"/manifest.json", "/sw.js", "/icon.svg", "/index.html", "/robots.txt"} {
 		req := httptest.NewRequest("GET", path, nil)
 		w := httptest.NewRecorder()
 		srv.httpServer.Handler.ServeHTTP(w, req)

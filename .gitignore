@@ -1,8 +1,10 @@
 # Binary
 /nginxplorer
+bin/
 
 # Database
 *.db
+*.mmdb
 
 # IDE / OS
 .idea/

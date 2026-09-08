@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kimusan/nginxplorer/internal/geoip"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
@@ -22,16 +23,47 @@ type LogStreamCollector struct {
 	store        *metrics.Store
 	anonymizeIPs bool
 	stripQuery   bool
+	ignoreHosts  map[string]struct{}
+	ignorePaths  []string
+	geoIP        *geoip.Provider
 }
 
 // NewLogStreamCollector creates a new LogStreamCollector.
-func NewLogStreamCollector(socketPath string, logFile string, store *metrics.Store, anonymizeIPs bool, stripQuery bool) *LogStreamCollector {
+func NewLogStreamCollector(
+	socketPath string,
+	logFile string,
+	store *metrics.Store,
+	anonymizeIPs bool,
+	stripQuery bool,
+	ignoreHosts []string,
+	ignorePaths []string,
+	geoIP *geoip.Provider,
+) *LogStreamCollector {
+	hostsMap := make(map[string]struct{}, len(ignoreHosts))
+	for _, h := range ignoreHosts {
+		h = strings.TrimSpace(strings.ToLower(h))
+		if h != "" {
+			hostsMap[h] = struct{}{}
+		}
+	}
+
+	cleanPaths := make([]string, 0, len(ignorePaths))
+	for _, p := range ignorePaths {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			cleanPaths = append(cleanPaths, p)
+		}
+	}
+
 	return &LogStreamCollector{
 		socketPath:   socketPath,
 		logFile:      logFile,
 		store:        store,
 		anonymizeIPs: anonymizeIPs,
 		stripQuery:   stripQuery,
+		ignoreHosts:  hostsMap,
+		ignorePaths:  cleanPaths,
+		geoIP:        geoIP,
 	}
 }
 
@@ -149,6 +181,21 @@ func (c *LogStreamCollector) processLine(data []byte) {
 		return
 	}
 
+	// Filter out ignored hosts (e.g. self-monitoring dashboard host)
+	if len(c.ignoreHosts) > 0 {
+		host := strings.TrimSpace(strings.ToLower(p.Host))
+		if _, ok := c.ignoreHosts[host]; ok {
+			return
+		}
+	}
+
+	// Filter out ignored paths (e.g. "/api/v1/", "/healthz")
+	for _, prefix := range c.ignorePaths {
+		if strings.HasPrefix(p.Uri, prefix) {
+			return
+		}
+	}
+
 	var upTime float64
 	if p.UpstreamTime != "-" && p.UpstreamTime != "" {
 		if val, err := strconv.ParseFloat(p.UpstreamTime, 64); err == nil {
@@ -170,6 +217,11 @@ func (c *LogStreamCollector) processLine(data []byte) {
 		}
 	}
 
+	var countryCode, countryName, countryFlag string
+	if c.geoIP != nil {
+		countryCode, countryName, countryFlag = c.geoIP.Lookup(p.Addr)
+	}
+
 	entry := &metrics.LogEntry{
 		Timestamp:    p.Ts,
 		Host:         p.Host,
@@ -185,6 +237,9 @@ func (c *LogStreamCollector) processLine(data []byte) {
 		UpstreamAddr: p.UpstreamAddr,
 		UserAgent:    p.Ua,
 		Referer:      p.Ref,
+		CountryCode:  countryCode,
+		CountryName:  countryName,
+		CountryFlag:  countryFlag,
 	}
 
 	c.store.RecordEntry(entry)

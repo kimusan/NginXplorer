@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kimusan/nginxplorer/internal/alerting"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
@@ -14,12 +15,16 @@ import (
 // It subscribes to the metrics store and fans out snapshots to all
 // connected browsers.
 type SSEBroker struct {
-	store *metrics.Store
+	store       *metrics.Store
+	alertEngine *alerting.Engine
 }
 
 // NewSSEBroker creates a new SSE broker.
-func NewSSEBroker(store *metrics.Store) *SSEBroker {
-	return &SSEBroker{store: store}
+func NewSSEBroker(store *metrics.Store, alertEngine *alerting.Engine) *SSEBroker {
+	return &SSEBroker{
+		store:       store,
+		alertEngine: alertEngine,
+	}
 }
 
 // ServeHTTP handles SSE connections from web clients.
@@ -97,6 +102,21 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "event: snapshot\ndata: %s\n\n", data)
 	flusher.Flush()
 
+	// Send initial alerts snapshot if alert engine is configured
+	if b.alertEngine != nil {
+		alertsPayload := struct {
+			Active []alerting.AlertEvent `json:"active"`
+			Recent []alerting.AlertEvent `json:"recent"`
+		}{
+			Active: b.alertEngine.ActiveAlerts(),
+			Recent: b.alertEngine.RecentEvents(20),
+		}
+		if alertBytes, err := json.Marshal(alertsPayload); err == nil {
+			fmt.Fprintf(w, "event: alerts\ndata: %s\n\n", alertBytes)
+			flusher.Flush()
+		}
+	}
+
 	slog.Info("SSE client connected", "remote_addr", r.RemoteAddr)
 
 	// Subscribe to real-time updates
@@ -109,6 +129,15 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Send keepalive comment every 15 seconds to detect dead connections
 	keepalive := time.NewTicker(15 * time.Second)
 	defer keepalive.Stop()
+
+	// Push alerts state every 5 seconds over SSE if alert engine is available
+	var alertTicker *time.Ticker
+	var alertC <-chan time.Time
+	if b.alertEngine != nil {
+		alertTicker = time.NewTicker(5 * time.Second)
+		defer alertTicker.Stop()
+		alertC = alertTicker.C
+	}
 
 	ctx := r.Context()
 
@@ -133,6 +162,24 @@ func (b *SSEBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return // Client disconnected
 			}
 			flusher.Flush()
+
+		case <-alertC:
+			if b.alertEngine != nil {
+				alertsPayload := struct {
+					Active []alerting.AlertEvent `json:"active"`
+					Recent []alerting.AlertEvent `json:"recent"`
+				}{
+					Active: b.alertEngine.ActiveAlerts(),
+					Recent: b.alertEngine.RecentEvents(20),
+				}
+				if alertBytes, err := json.Marshal(alertsPayload); err == nil {
+					_, err = fmt.Fprintf(w, "event: alerts\ndata: %s\n\n", alertBytes)
+					if err != nil {
+						return
+					}
+					flusher.Flush()
+				}
+			}
 
 		case <-keepalive.C:
 			_, err := fmt.Fprintf(w, ": keepalive\n\n")

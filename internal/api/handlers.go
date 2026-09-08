@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/kimusan/nginxplorer/internal/alerting"
@@ -85,6 +86,7 @@ func (h *Handlers) HandleHistory(w http.ResponseWriter, r *http.Request) {
 				Bandwidth:  make([]metrics.HistoryPoint, 0),
 				Summary:    &metrics.HistorySummary{},
 			}
+			countryAgg := make(map[string]*metrics.CountryStats)
 			for _, name := range names {
 				vhHistory := h.store.GetHistory(name, duration)
 				if vhHistory != nil {
@@ -112,8 +114,94 @@ func (h *Handlers) HandleHistory(w http.ResponseWriter, r *http.Request) {
 							agg.Bandwidth = append(agg.Bandwidth, p)
 						}
 					}
+
+					if vhHistory.Summary != nil {
+						agg.Summary.TotalRequests += vhHistory.Summary.TotalRequests
+						agg.Summary.TotalBytesIn += vhHistory.Summary.TotalBytesIn
+						agg.Summary.TotalBytesOut += vhHistory.Summary.TotalBytesOut
+						agg.Summary.UniqueVisitors += vhHistory.Summary.UniqueVisitors
+						agg.Summary.StatusCodes.S2xx += vhHistory.Summary.StatusCodes.S2xx
+						agg.Summary.StatusCodes.S3xx += vhHistory.Summary.StatusCodes.S3xx
+						agg.Summary.StatusCodes.S4xx += vhHistory.Summary.StatusCodes.S4xx
+						agg.Summary.StatusCodes.S5xx += vhHistory.Summary.StatusCodes.S5xx
+
+						agg.Summary.BotTraffic.HumanRequests += vhHistory.Summary.BotTraffic.HumanRequests
+						agg.Summary.BotTraffic.GoodBotRequests += vhHistory.Summary.BotTraffic.GoodBotRequests
+						agg.Summary.BotTraffic.BadBotRequests += vhHistory.Summary.BotTraffic.BadBotRequests
+
+						if len(agg.Summary.LatencyBuckets) != 10 {
+							agg.Summary.LatencyBuckets = make([]int64, 10)
+						}
+						for b := 0; b < 10 && b < len(vhHistory.Summary.LatencyBuckets); b++ {
+							agg.Summary.LatencyBuckets[b] += vhHistory.Summary.LatencyBuckets[b]
+						}
+
+						for _, c := range vhHistory.Summary.TopCountries {
+							existing, ok := countryAgg[c.CountryCode]
+							if !ok {
+								countryAgg[c.CountryCode] = &metrics.CountryStats{
+									CountryCode: c.CountryCode,
+									CountryName: c.CountryName,
+									Flag:        c.Flag,
+									Count:       c.Count,
+									RPS:         c.RPS,
+								}
+							} else {
+								existing.Count += c.Count
+								existing.RPS += c.RPS
+							}
+						}
+					}
 				}
 			}
+
+			if duration.Seconds() > 0 {
+				agg.Summary.AvgRPS = float64(agg.Summary.TotalRequests) / duration.Seconds()
+			}
+			totCodes := agg.Summary.StatusCodes.Total()
+			if totCodes > 0 {
+				agg.Summary.ErrorRate = float64(agg.Summary.StatusCodes.S4xx+agg.Summary.StatusCodes.S5xx) / float64(totCodes) * 100
+			}
+
+			sortedCountries := make([]metrics.CountryStats, 0, len(countryAgg))
+			var grandCountryCount int64
+			for _, c := range countryAgg {
+				grandCountryCount += c.Count
+				sortedCountries = append(sortedCountries, *c)
+			}
+			sort.Slice(sortedCountries, func(i, j int) bool {
+				return sortedCountries[i].Count > sortedCountries[j].Count
+			})
+			if len(sortedCountries) > 10 {
+				sortedCountries = sortedCountries[:10]
+			}
+			for i := range sortedCountries {
+				denom := grandCountryCount
+				if denom == 0 && agg.Summary.TotalRequests > 0 {
+					denom = agg.Summary.TotalRequests
+				}
+				if denom > 0 {
+					sortedCountries[i].Percentage = (float64(sortedCountries[i].Count) / float64(denom)) * 100
+				}
+			}
+			agg.Summary.TopCountries = sortedCountries
+
+			// Collect top paths across all vhosts
+			allPaths := make([]metrics.PathStats, 0)
+			for _, name := range names {
+				vhHistory := h.store.GetHistory(name, duration)
+				if vhHistory != nil && vhHistory.Summary != nil {
+					allPaths = append(allPaths, vhHistory.Summary.TopPaths...)
+				}
+			}
+			sort.Slice(allPaths, func(i, j int) bool {
+				return allPaths[i].Count > allPaths[j].Count
+			})
+			if len(allPaths) > 10 {
+				allPaths = allPaths[:10]
+			}
+			agg.Summary.TopPaths = allPaths
+
 			history = agg
 		} else {
 			history = h.store.GetHistory(vhost, duration)

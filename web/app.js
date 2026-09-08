@@ -42,6 +42,8 @@ const els = {
     // Tables
     topPathsThead: document.querySelector('#top-paths-table thead tr'),
     topPathsTbody: document.querySelector('#top-paths-table tbody'),
+    topCountriesThead: document.querySelector('#top-countries-table thead tr'),
+    topCountriesTbody: document.querySelector('#top-countries-table tbody'),
 
     // Alerts
     alertsBtn: document.getElementById('alerts-btn'),
@@ -380,10 +382,14 @@ function setupEventListeners() {
             e.target.classList.add('active');
             state.timeRange = e.target.dataset.range;
             if (state.timeRange !== 'live') {
+                updateCountriesTable([]);
+                updateTable([]);
                 fetchHistory();
             } else {
                 const connTitle = els.statConnections.parentElement.querySelector('.stat-title');
                 if (connTitle) connTitle.textContent = 'Active Connections';
+                const uvTitle = els.statUv.parentElement.querySelector('.stat-title');
+                if (uvTitle) uvTitle.textContent = 'Visitors (5m)';
                 state.history = {
                     rps: { times: [], values: [] },
                     latency: { times: [], p50: [], p95: [], p99: [] }
@@ -450,8 +456,6 @@ async function checkAuth() {
             els.loginModal.classList.add('show');
         } else {
             connectSSE();
-            fetchAlerts();
-            setInterval(fetchAlerts, 10000);
         }
     } catch (err) {
         console.error('Auth check failed', err);
@@ -497,6 +501,15 @@ function connectSSE() {
             processMetrics(data);
         } catch (err) {
             console.error('Error parsing metrics', err);
+        }
+    });
+
+    state.eventSource.addEventListener('alerts', (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            renderAlerts(data);
+        } catch (err) {
+            console.error('Error parsing alerts event', err);
         }
     });
 
@@ -626,6 +639,8 @@ function processHistory(data) {
         if (connTitle) connTitle.textContent = state.timeRange === 'live' ? 'Active Connections' : 'Total Requests';
         const uvFormatted = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
         els.statUv.textContent = uvFormatted;
+        const uvTitle = els.statUv.parentElement.querySelector('.stat-title');
+        if (uvTitle) uvTitle.textContent = state.timeRange === 'live' ? 'Visitors (5m)' : 'Unique Visitors';
 
         if (s.status_codes || s.latency_buckets) {
             updateECharts(s.status_codes, s.latency_buckets || null);
@@ -633,10 +648,25 @@ function processHistory(data) {
         if (s.bot_traffic) {
             updateClientTypeChart(s.bot_traffic);
         }
+        if (s.top_countries && s.top_countries.length > 0) {
+            updateCountriesTable(s.top_countries);
+        } else {
+            updateCountriesTable([]);
+        }
+        if (s.top_paths && s.top_paths.length > 0) {
+            updateTable(s.top_paths);
+        } else {
+            updateTable([]);
+        }
+    } else {
+        updateCountriesTable([]);
+        updateTable([]);
     }
 }
 
 function processMetrics(data) {
+    if (state.timeRange !== 'live') return;
+
     const ts = new Date(data.timestamp).getTime() / 1000;
     
     let metrics;
@@ -654,6 +684,7 @@ function processMetrics(data) {
     updateECharts(metrics.status_codes, metrics.latency_buckets);
     updateClientTypeChart(metrics.bot_traffic);
     updateTable(metrics.top_paths);
+    updateCountriesTable(metrics.top_countries);
 }
 
 function aggregateVHosts(vhosts) {
@@ -665,7 +696,8 @@ function aggregateVHosts(vhosts) {
         status_codes: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 },
         unique_visitors: 0,
         bot_traffic: { human: 0, good_bot: 0, bad_bot: 0 },
-        top_paths: []
+        top_paths: [],
+        top_countries: []
     };
     if (!vhosts) return agg;
     
@@ -717,6 +749,18 @@ function aggregateVHosts(vhosts) {
                 });
             });
         }
+
+        if (v.top_countries) {
+            v.top_countries.forEach(tc => {
+                let existing = agg.top_countries.find(item => item.code === tc.code);
+                if (existing) {
+                    existing.count += tc.count || 0;
+                    existing.rps += tc.rps || 0;
+                } else {
+                    agg.top_countries.push({ ...tc });
+                }
+            });
+        }
     }
     
     if (totalReqs > 0) agg.error_rate = totalErrors / totalReqs;
@@ -732,6 +776,14 @@ function aggregateVHosts(vhosts) {
     // Sort combined top paths across all vhosts by RPS descending and limit to top 10
     agg.top_paths.sort((a, b) => (b.rps || 0) - (a.rps || 0));
     agg.top_paths = agg.top_paths.slice(0, 10);
+
+    // Compute percentage and sort top countries
+    const totalCountryCount = agg.top_countries.reduce((acc, c) => acc + (c.count || 0), 0);
+    agg.top_countries.forEach(c => {
+        c.percentage = totalCountryCount > 0 ? (c.count / totalCountryCount) * 100 : 0;
+    });
+    agg.top_countries.sort((a, b) => (b.count || 0) - (a.count || 0));
+    agg.top_countries = agg.top_countries.slice(0, 10);
     
     return agg;
 }
@@ -775,6 +827,8 @@ function updateTimeSeries(ts, m) {
 
 function updateTable(paths) {
     const isAll = state.currentVHost === 'all';
+    const isLive = state.timeRange === 'live';
+    const reqHeader = isLive ? 'Req/s' : 'Visits';
     
     // Update headers dynamically
     if (els.topPathsThead) {
@@ -782,14 +836,14 @@ function updateTable(paths) {
             els.topPathsThead.innerHTML = `
                 <th>VHost</th>
                 <th>Path</th>
-                <th>Req/s</th>
+                <th>${reqHeader}</th>
                 <th>Avg Latency</th>
                 <th>2xx %</th>
             `;
         } else {
             els.topPathsThead.innerHTML = `
                 <th>Path</th>
-                <th>Req/s</th>
+                <th>${reqHeader}</th>
                 <th>Avg Latency</th>
                 <th>2xx %</th>
             `;
@@ -803,15 +857,120 @@ function updateTable(paths) {
     }
     
     const limit = isAll ? 10 : 6;
-    els.topPathsTbody.innerHTML = paths.slice(0, limit).map(p => `
+    els.topPathsTbody.innerHTML = paths.slice(0, limit).map(p => {
+        const countVal = (p.count !== undefined && p.count !== null) ? Number(p.count).toLocaleString() : (p.rps ? p.rps.toFixed(1) : '0');
+        const metricDisplay = isLive ? (p.rps || 0).toFixed(1) : countVal;
+        return `
         <tr>
             ${isAll ? `<td style="font-weight:600; color:var(--accent);">${p.vhost || '-'}</td>` : ''}
             <td>${p.path}</td>
-            <td>${(p.rps || 0).toFixed(1)}</td>
+            <td>${metricDisplay}</td>
             <td>${(p.avg_latency || 0).toFixed(1)}ms</td>
             <td>${(p.status_2xx || 0).toFixed(0)}%</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
+}
+
+function updateCountriesTable(countries) {
+    if (!els.topCountriesTbody) return;
+
+    const isLive = state.timeRange === 'live';
+    if (els.topCountriesThead) {
+        els.topCountriesThead.innerHTML = `
+            <th>Country</th>
+            <th>${isLive ? 'Req/s' : 'Visits'}</th>
+            <th>Share</th>
+        `;
+    }
+
+    if (!countries || countries.length === 0) {
+        els.topCountriesTbody.innerHTML = `<tr><td colspan="3" class="text-muted" style="text-align: center; padding: 1rem; color: var(--text-muted);">No country data yet</td></tr>`;
+        return;
+    }
+
+    const limit = 8;
+    els.topCountriesTbody.innerHTML = countries.slice(0, limit).map(c => {
+        const countVal = (c.count !== undefined && c.count !== null) ? Number(c.count).toLocaleString() : (c.rps ? c.rps.toFixed(1) : '0');
+        const metricDisplay = isLive ? (c.rps || 0).toFixed(1) : countVal;
+        return `
+        <tr>
+            <td>
+                <span style="font-size: 1.1rem; margin-right: 0.35rem;">${c.flag || '🌐'}</span>
+                <span style="font-weight: 500;">${c.name || c.code || 'Unknown'}</span>
+                <span class="text-muted" style="font-size: 0.75rem; margin-left: 0.25rem; color: var(--text-muted);">(${c.code || '?'})</span>
+            </td>
+            <td>${metricDisplay}</td>
+            <td style="min-width: 90px;">
+                <div style="display: flex; align-items: center; gap: 0.4rem;">
+                    <div style="flex: 1; height: 6px; background: var(--border-color); border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${Math.min(100, Math.max(0, c.percentage || 0))}%; height: 100%; background: var(--accent); border-radius: 3px;"></div>
+                    </div>
+                    <span style="font-size: 0.75rem; width: 35px; text-align: right; color: var(--text-secondary);">${(c.percentage || 0).toFixed(1)}%</span>
+                </div>
+            </td>
+        </tr>
+    `;
+    }).join('');
+}
+
+function renderAlerts(data) {
+    if (!data) return;
+    
+    const activeCount = data.active ? data.active.length : 0;
+    if (els.alertsBadge) {
+        els.alertsBadge.textContent = activeCount;
+        if (activeCount > 0) {
+            els.alertsBadge.classList.add('badge-firing');
+        } else {
+            els.alertsBadge.classList.remove('badge-firing');
+        }
+    }
+
+    if (els.activeAlertsList) {
+        if (!data.active || data.active.length === 0) {
+            els.activeAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No active alerts. All systems healthy.</p>';
+        } else {
+            els.activeAlertsList.innerHTML = data.active.map(a => `
+                <div class="alert-item firing">
+                    <div class="alert-item-header">
+                        <span>🚨 ${a.rule_name} (${a.vhost})</span>
+                        <span style="color: var(--color-5xx, #e02424); font-size: 0.75rem;">FIRING</span>
+                    </div>
+                    <div class="alert-item-body">
+                        <div>${a.message}</div>
+                        <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${a.details || ''} • Started ${new Date(a.started_at).toLocaleTimeString()}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
+
+    if (els.recentAlertsList) {
+        if (!data.recent || data.recent.length === 0) {
+            els.recentAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No recent alert events.</p>';
+        } else {
+            els.recentAlertsList.innerHTML = data.recent.slice(0, 10).map(a => {
+                const isFiring = a.state === 'firing';
+                const icon = isFiring ? '🚨' : '✅';
+                const stateClass = isFiring ? 'firing' : 'resolved';
+                const stateText = isFiring ? 'FIRING' : 'RESOLVED';
+                const time = isFiring ? new Date(a.started_at).toLocaleTimeString() : (a.resolved_at ? new Date(a.resolved_at).toLocaleTimeString() : '');
+                return `
+                    <div class="alert-item ${stateClass}">
+                        <div class="alert-item-header">
+                            <span>${icon} ${a.rule_name} (${a.vhost})</span>
+                            <span style="font-size: 0.75rem; color: ${isFiring ? 'var(--color-5xx, #e02424)' : 'var(--color-2xx, #0e9f6e)'}">${stateText}</span>
+                        </div>
+                        <div class="alert-item-body">
+                            <div>${a.message}</div>
+                            <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${time}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
 }
 
 async function fetchAlerts() {
@@ -819,61 +978,7 @@ async function fetchAlerts() {
         const res = await fetch('/api/v1/alerts');
         if (!res.ok) return;
         const data = await res.json();
-        
-        const activeCount = data.active ? data.active.length : 0;
-        if (els.alertsBadge) {
-            els.alertsBadge.textContent = activeCount;
-            if (activeCount > 0) {
-                els.alertsBadge.classList.add('badge-firing');
-            } else {
-                els.alertsBadge.classList.remove('badge-firing');
-            }
-        }
-
-        if (els.activeAlertsList) {
-            if (!data.active || data.active.length === 0) {
-                els.activeAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No active alerts. All systems healthy.</p>';
-            } else {
-                els.activeAlertsList.innerHTML = data.active.map(a => `
-                    <div class="alert-item firing">
-                        <div class="alert-item-header">
-                            <span>🚨 ${a.rule_name} (${a.vhost})</span>
-                            <span style="color: var(--color-5xx, #e02424); font-size: 0.75rem;">FIRING</span>
-                        </div>
-                        <div class="alert-item-body">
-                            <div>${a.message}</div>
-                            <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${a.details || ''} • Started ${new Date(a.started_at).toLocaleTimeString()}</div>
-                        </div>
-                    </div>
-                `).join('');
-            }
-        }
-
-        if (els.recentAlertsList) {
-            if (!data.recent || data.recent.length === 0) {
-                els.recentAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No recent alert events.</p>';
-            } else {
-                els.recentAlertsList.innerHTML = data.recent.slice(0, 10).map(a => {
-                    const isFiring = a.state === 'firing';
-                    const icon = isFiring ? '🚨' : '✅';
-                    const stateClass = isFiring ? 'firing' : 'resolved';
-                    const stateText = isFiring ? 'FIRING' : 'RESOLVED';
-                    const time = isFiring ? new Date(a.started_at).toLocaleTimeString() : (a.resolved_at ? new Date(a.resolved_at).toLocaleTimeString() : '');
-                    return `
-                        <div class="alert-item ${stateClass}">
-                            <div class="alert-item-header">
-                                <span>${icon} ${a.rule_name} (${a.vhost})</span>
-                                <span style="font-size: 0.75rem; color: ${isFiring ? 'var(--color-5xx, #e02424)' : 'var(--color-2xx, #0e9f6e)'}">${stateText}</span>
-                            </div>
-                            <div class="alert-item-body">
-                                <div>${a.message}</div>
-                                <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${time}</div>
-                            </div>
-                        </div>
-                    `;
-                }).join('');
-            }
-        }
+        renderAlerts(data);
     } catch (err) {
         console.error('Failed to fetch alerts', err);
     }

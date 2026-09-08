@@ -27,6 +27,7 @@ import (
 	"github.com/kimusan/nginxplorer/internal/api"
 	"github.com/kimusan/nginxplorer/internal/collector"
 	"github.com/kimusan/nginxplorer/internal/config"
+	"github.com/kimusan/nginxplorer/internal/geoip"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 	"github.com/kimusan/nginxplorer/internal/storage"
 	"github.com/kimusan/nginxplorer/internal/tui"
@@ -136,6 +137,21 @@ func main() {
 	)
 	go stubCollector.Start(ctx)
 
+	// Initialize GeoIP provider (if enabled)
+	var geoIPProvider *geoip.Provider
+	if cfg.GeoIP.Enabled {
+		geoIPPath := cfg.GeoIP.DBPath
+		if geoIPPath == "" {
+			geoIPPath = filepath.Join(filepath.Dir(cfg.Storage.DBPath), "geoip-country.mmdb")
+		}
+		geoIPProvider = geoip.NewProvider(geoIPPath)
+		defer geoIPProvider.Close()
+
+		if cfg.GeoIP.AutoDownload {
+			geoIPProvider.AutoUpdate(ctx, "")
+		}
+	}
+
 	// Start log stream collector
 	logCollector := collector.NewLogStreamCollector(
 		cfg.Nginx.LogSocket,
@@ -143,6 +159,9 @@ func main() {
 		store,
 		cfg.Privacy.AnonymizeIPs,
 		cfg.Privacy.StripQueryStrings,
+		cfg.Filter.IgnoreHosts,
+		cfg.Filter.IgnorePaths,
+		geoIPProvider,
 	)
 	go logCollector.Start(ctx)
 

@@ -17,6 +17,8 @@ type Config struct {
 	Storage StorageConfig `yaml:"storage"`
 	Metrics MetricsConfig `yaml:"metrics"`
 	Privacy PrivacyConfig `yaml:"privacy"`
+	Filter  FilterConfig  `yaml:"filter"`
+	GeoIP   GeoIPConfig   `yaml:"geoip"`
 	Alerts  AlertsConfig  `yaml:"alerts"`
 	Log     LogConfig     `yaml:"log"`
 }
@@ -79,6 +81,24 @@ type PrivacyConfig struct {
 	AnonymizeIPs bool `yaml:"anonymize_ips"`
 	// StripQueryStrings removes query strings from logged URIs.
 	StripQueryStrings bool `yaml:"strip_query_strings"`
+}
+
+// FilterConfig controls log entry exclusion rules.
+type FilterConfig struct {
+	// IgnoreHosts is a list of virtual hosts to ignore/exclude from metrics.
+	IgnoreHosts []string `yaml:"ignore_hosts"`
+	// IgnorePaths is a list of path prefixes to ignore/exclude from metrics (e.g. "/api/v1/").
+	IgnorePaths []string `yaml:"ignore_paths"`
+}
+
+// GeoIPConfig controls GeoIP country lookup and automated database downloading.
+type GeoIPConfig struct {
+	// Enabled enables GeoIP country resolution.
+	Enabled bool `yaml:"enabled"`
+	// DBPath is the filesystem path to the MaxMind/DB-IP country .mmdb file.
+	DBPath string `yaml:"db_path"`
+	// AutoDownload automatically downloads DB-IP Country Lite if missing or outdated.
+	AutoDownload bool `yaml:"auto_download"`
 }
 
 // LogConfig controls NginXplorer's own logging.
@@ -148,6 +168,11 @@ func DefaultConfig() *Config {
 		Privacy: PrivacyConfig{
 			AnonymizeIPs:      false,
 			StripQueryStrings: true,
+		},
+		GeoIP: GeoIPConfig{
+			Enabled:      true,
+			DBPath:       "/var/lib/nginxplorer/geoip-country.mmdb",
+			AutoDownload: true,
 		},
 		Log: LogConfig{
 			Level:  "info",

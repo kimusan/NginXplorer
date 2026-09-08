@@ -39,7 +39,7 @@ type ServerConfig struct {
 func NewServer(cfg ServerConfig) *Server {
 	auth := NewAuthManager(cfg.Auth)
 	handlers := NewHandlers(cfg.Store, cfg.SQLStore, cfg.AlertEngine)
-	sseBroker := NewSSEBroker(cfg.Store)
+	sseBroker := NewSSEBroker(cfg.Store, cfg.AlertEngine)
 
 	s := &Server{
 		store:     cfg.Store,

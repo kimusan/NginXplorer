@@ -146,6 +146,11 @@ func (s *Store) RecordEntry(entry *LogEntry) {
 	// Path tracking
 	is2xx := entry.Status >= 200 && entry.Status < 300
 	vh.PathCounts.Add(entry.URI, entry.RequestTime, is2xx, entry.Timestamp.Unix())
+
+	// Country tracking
+	if entry.CountryCode != "" {
+		vh.CountryCounts.Add(entry.CountryCode, entry.CountryName, entry.CountryFlag, entry.Timestamp.Unix())
+	}
 }
 
 // UpdateStubStatus updates the global metrics from a stub_status poll.
@@ -296,6 +301,7 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		topPaths[i].VHost = vh.Name
 	}
 	visitors := vh.Visitors.Count(nowUnix)
+	topCountries := vh.CountryCounts.Top(10, float64(windowSecs), nowUnix)
 
 	return VHostMetrics{
 		RPS:            rps,
@@ -307,16 +313,18 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		UniqueVisitors: visitors,
 		BotTraffic:     totalBotTraffic,
 		TopPaths:       topPaths,
+		TopCountries:   topCountries,
 	}
 }
 
 // newVHostState creates a fresh VHostState with initialized sub-structures.
 func (s *Store) newVHostState(name string) *VHostState {
 	return &VHostState{
-		Name:       name,
-		Digest:     NewTDigest(100),
-		Visitors:   NewWindowedHLL(s.visitorMins),
-		PathCounts: NewTopKTracker(s.maxTopPaths),
+		Name:          name,
+		Digest:        NewTDigest(100),
+		Visitors:      NewWindowedHLL(s.visitorMins),
+		PathCounts:    NewTopKTracker(s.maxTopPaths),
+		CountryCounts: NewCountryTracker(),
 	}
 }
 
@@ -438,7 +446,132 @@ func (s *Store) GetHistory(vhost string, duration time.Duration) *VHostHistory {
 	reverseHistoryPoints(history.ErrorRate)
 	reverseHistoryPoints(history.Bandwidth)
 
+	// Populate summary totals
+	var totalReqs int64
+	var totalErrReqs int64
+	var totalCodes StatusCodes
+	var totalBytesIn, totalBytesOut int64
+	var totalBotTraffic BotTrafficStats
+	var totalLatencyBuckets [10]int64
+	var latSum float64
+	var pointCount int64
+
+	for i := 0; i < len(vh.Seconds); i++ {
+		bucket := vh.Seconds[i]
+		if bucket.Timestamp.IsZero() || bucket.Timestamp.Before(cutoff) {
+			continue
+		}
+		totalReqs += bucket.Requests
+		totalCodes.S2xx += bucket.StatusCodes.S2xx
+		totalCodes.S3xx += bucket.StatusCodes.S3xx
+		totalCodes.S4xx += bucket.StatusCodes.S4xx
+		totalCodes.S5xx += bucket.StatusCodes.S5xx
+		totalErrReqs += bucket.StatusCodes.S4xx + bucket.StatusCodes.S5xx
+		totalBytesIn += bucket.BytesIn
+		totalBytesOut += bucket.BytesOut
+		totalBotTraffic.HumanRequests += bucket.BotTraffic.HumanRequests
+		totalBotTraffic.GoodBotRequests += bucket.BotTraffic.GoodBotRequests
+		totalBotTraffic.BadBotRequests += bucket.BotTraffic.BadBotRequests
+		for b := 0; b < 10; b++ {
+			totalLatencyBuckets[b] += bucket.LatencyBuckets[b]
+		}
+		if bucket.Requests > 0 {
+			latSum += (bucket.TotalLatency / float64(bucket.Requests)) * 1000
+			pointCount++
+		}
+	}
+
+	errRate := 0.0
+	if totalReqs > 0 {
+		errRate = float64(totalErrReqs) / float64(totalReqs) * 100
+	}
+	avgLat := 0.0
+	if pointCount > 0 {
+		avgLat = latSum / float64(pointCount)
+	}
+	avgRPS := 0.0
+	if duration.Seconds() > 0 {
+		avgRPS = float64(totalReqs) / duration.Seconds()
+	}
+
+	nowUnix := now.Unix()
+	latBuckets := make([]int64, 10)
+	copy(latBuckets, totalLatencyBuckets[:])
+
+	topPaths := vh.PathCounts.Top(10, duration.Seconds(), nowUnix)
+	for i := range topPaths {
+		topPaths[i].VHost = vh.Name
+	}
+
+	history.Summary = &HistorySummary{
+		TotalRequests:  totalReqs,
+		AvgRPS:         avgRPS,
+		AvgLatency:     avgLat,
+		ErrorRate:      errRate,
+		StatusCodes:    totalCodes,
+		TotalBytesIn:   totalBytesIn,
+		TotalBytesOut:  totalBytesOut,
+		UniqueVisitors: vh.Visitors.Count(nowUnix),
+		BotTraffic:     totalBotTraffic,
+		LatencyBuckets: latBuckets,
+		TopCountries:   vh.CountryCounts.Top(10, duration.Seconds(), nowUnix),
+		TopPaths:       topPaths,
+	}
+
 	return history
+}
+
+// MinuteCountries returns all active country metrics for a vhost over the last 60 seconds.
+func (s *Store) MinuteCountries(vhost string, nowUnix int64) []CountryStats {
+	s.mu.RLock()
+	vh, ok := s.vhosts[vhost]
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	return vh.CountryCounts.Top(0, 60, nowUnix)
+}
+
+// MinutePaths returns top active paths for a vhost over the last 60 seconds (max 50).
+func (s *Store) MinutePaths(vhost string, nowUnix int64) []PathStats {
+	s.mu.RLock()
+	vh, ok := s.vhosts[vhost]
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	return vh.PathCounts.Top(50, 60, nowUnix)
+}
+
+// MinuteLatencyBuckets returns the 10 latency histogram bucket counts over the last 60 seconds.
+func (s *Store) MinuteLatencyBuckets(vhost string, now time.Time) [10]int64 {
+	s.mu.RLock()
+	vh, ok := s.vhosts[vhost]
+	s.mu.RUnlock()
+	if !ok {
+		return [10]int64{}
+	}
+
+	vh.mu.RLock()
+	defer vh.mu.RUnlock()
+
+	var buckets [10]int64
+	for k := 0; k < 10; k++ {
+		buckets[k] += vh.CurrentSecond.LatencyBuckets[k]
+	}
+	for i := 0; i < 60; i++ {
+		idx := (vh.SecondsHead - 1 - i + len(vh.Seconds)) % len(vh.Seconds)
+		b := vh.Seconds[idx]
+		if b.Timestamp.IsZero() || now.Sub(b.Timestamp) > 62*time.Second {
+			continue
+		}
+		for k := 0; k < 10; k++ {
+			buckets[k] += b.LatencyBuckets[k]
+		}
+	}
+	return buckets
 }
 
 func reverseHistoryPoints(pts []HistoryPoint) {
