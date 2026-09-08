@@ -389,3 +389,69 @@ button[type="submit"]:hover {
         flex-direction: column;
     }
 }
+
+/* Alerts button and modal */
+.alerts-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.alerts-btn .badge {
+    background: var(--text-secondary);
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: bold;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    transition: background 0.2s ease;
+}
+
+.alerts-btn .badge.badge-firing {
+    background: var(--color-5xx, #e02424);
+    animation: pulse-badge 2s infinite;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.alerts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.alert-item {
+    padding: 0.6rem 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    font-size: 0.82rem;
+}
+
+.alert-item.firing {
+    border-left: 4px solid var(--color-5xx, #e02424);
+}
+
+.alert-item.resolved {
+    border-left: 4px solid var(--color-2xx, #0e9f6e);
+    opacity: 0.85;
+}
+
+.alert-item-header {
+    display: flex;
+    justify-content: space-between;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+.alert-item-body {
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+}
+

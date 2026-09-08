@@ -47,6 +47,7 @@
                         <button data-range="30d">30d</button>
                     </div>
                     <button id="pause-toggle">⏸️ Pause</button>
+                    <button id="alerts-btn" class="alerts-btn" title="View Alerts">🔔 <span id="alerts-badge" class="badge">0</span></button>
                 </div>
             </header>
 
@@ -147,6 +148,29 @@
                 <div class="form-group error-msg" id="login-error"></div>
                 <button type="submit">Login</button>
             </form>
+        </div>
+    </div>
+
+    <!-- Alerts Modal -->
+    <div id="alerts-modal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2>🔔 Alerts & Incidents</h2>
+                <button id="close-alerts-btn" style="background: none; border: none; font-size: 1.5rem; color: var(--text-color); cursor: pointer;">&times;</button>
+            </div>
+            <div>
+                <h3 style="font-size: 0.95rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Active Firing Alerts</h3>
+                <div id="active-alerts-list" class="alerts-list">
+                    <p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No active alerts. All systems healthy.</p>
+                </div>
+                <h3 style="font-size: 0.95rem; margin-top: 1.25rem; margin-bottom: 0.5rem; color: var(--text-secondary);">Recent Alert History</h3>
+                <div id="recent-alerts-list" class="alerts-list">
+                    <p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No recent alert events.</p>
+                </div>
+                <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <button id="test-alert-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Send Test Notification</button>
+                </div>
+            </div>
         </div>
     </div>
 

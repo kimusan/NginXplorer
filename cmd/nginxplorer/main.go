@@ -23,6 +23,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/kimusan/nginxplorer/internal/alerting"
 	"github.com/kimusan/nginxplorer/internal/api"
 	"github.com/kimusan/nginxplorer/internal/collector"
 	"github.com/kimusan/nginxplorer/internal/config"
@@ -174,12 +175,22 @@ func main() {
 		})
 	}
 
+	// Start Alerting Engine
+	var alertEngine *alerting.Engine
+	if cfg.Alerts.Enabled {
+		alertEngine = alerting.NewEngine(cfg.Alerts, store)
+		go alertEngine.Start(ctx)
+		defer alertEngine.Stop()
+		slog.Info("alerting engine initialized", "rules", len(cfg.Alerts.Rules), "channels", len(cfg.Alerts.Channels))
+	}
+
 	// Start HTTP server
 	server := api.NewServer(api.ServerConfig{
-		Bind:     cfg.Server.Bind,
-		Auth:     authCfg,
-		Store:    store,
-		SQLStore: sqlStore,
+		Bind:        cfg.Server.Bind,
+		Auth:        authCfg,
+		Store:       store,
+		SQLStore:    sqlStore,
+		AlertEngine: alertEngine,
 	})
 
 	// Handle shutdown signals

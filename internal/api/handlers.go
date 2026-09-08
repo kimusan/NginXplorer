@@ -6,20 +6,23 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kimusan/nginxplorer/internal/alerting"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 	"github.com/kimusan/nginxplorer/internal/storage"
 )
 
 type Handlers struct {
-	store    *metrics.Store
-	sqlStore *storage.SQLiteStore
+	store       *metrics.Store
+	sqlStore    *storage.SQLiteStore
+	alertEngine *alerting.Engine
 }
 
 // NewHandlers creates a new Handlers instance.
-func NewHandlers(store *metrics.Store, sqlStore *storage.SQLiteStore) *Handlers {
+func NewHandlers(store *metrics.Store, sqlStore *storage.SQLiteStore, alertEngine *alerting.Engine) *Handlers {
 	return &Handlers{
-		store:    store,
-		sqlStore: sqlStore,
+		store:       store,
+		sqlStore:    sqlStore,
+		alertEngine: alertEngine,
 	}
 }
 
@@ -124,6 +127,50 @@ func (h *Handlers) HandleHealthz(w http.ResponseWriter, r *http.Request) {
 		"version": Version,
 		"uptime":  time.Since(startTime).String(),
 	})
+}
+
+// HandleAlerts returns the currently firing alerts and recent alert events.
+// GET /api/v1/alerts
+func (h *Handlers) HandleAlerts(w http.ResponseWriter, r *http.Request) {
+	var active []alerting.AlertEvent
+	var recent []alerting.AlertEvent
+
+	if h.alertEngine != nil {
+		active = h.alertEngine.ActiveAlerts()
+		recent = h.alertEngine.RecentEvents(20)
+	}
+
+	if active == nil {
+		active = make([]alerting.AlertEvent, 0)
+	}
+	if recent == nil {
+		recent = make([]alerting.AlertEvent, 0)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"active": active,
+		"recent": recent,
+	})
+}
+
+// HandleTestAlert triggers a test notification across all configured channels.
+// POST /api/v1/alerts/test
+func (h *Handlers) HandleTestAlert(w http.ResponseWriter, r *http.Request) {
+	if h.alertEngine == nil {
+		http.Error(w, `{"error":"alerting engine not enabled"}`, http.StatusBadRequest)
+		return
+	}
+
+	if err := h.alertEngine.SendTestNotification(r.Context()); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "test notification sent"})
 }
 
 // parseDuration converts a human-readable range string to a time.Duration.

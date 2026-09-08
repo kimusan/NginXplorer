@@ -52,7 +52,54 @@ privacy:
   # Don't log query strings
   strip_query_strings: true
 
+# Alerting and Webhook Notifications
+alerts:
+  enabled: false
+  # Click-through URL included in alert notifications
+  dashboard_url: "https://stats.dublin.hackspace.tech"
+  # Minimum cooldown between repeat firings of the same alert
+  cooldown: "10m"
+  rules:
+    # High error rate rule with low-traffic noise protection
+    - name: "High Error Rate"
+      vhost: "all"            # "all" or specific vhost name (e.g. "example.com")
+      metric: "error_rate"    # error_rate (%), latency_p95 (ms), latency_avg (ms), zero_traffic (rps)
+      threshold: 5.0          # error rate > 5.0%
+      duration: "1m"          # must persist for at least 1 minute
+      min_requests: 20        # require at least 20 total requests in window (prevents 1-2 bot scan false positives)
+      min_errors: 5           # require at least 5 errors
+
+    - name: "High Latency"
+      vhost: "all"
+      metric: "latency_p95"
+      threshold: 1500.0       # p95 latency > 1500ms
+      duration: "2m"
+      min_requests: 10
+
+  channels:
+    # ntfy.sh push notifications (mobile app & web)
+    - type: "ntfy"
+      url: "https://ntfy.sh/nginxplorer_alert"
+      # token: ""             # optional bearer token if topic is protected
+
+    # Pushbullet notifications (Android, iOS, Chrome, desktop)
+    # - type: "pushbullet"
+    #   api_token: "o.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    #   device_iden: ""       # optional device ID to target specific device
+
+    # Slack, Discord, or Mattermost incoming webhooks
+    # - type: "slack"
+    #   url: "https://hooks.slack.com/services/..."
+    # - type: "discord"
+    #   url: "https://discord.com/api/webhooks/..."
+
+    # Generic HTTP webhook
+    # - type: "webhook"
+    #   url: "https://api.example.com/alerts"
+    #   token: "secret"
+
 # Logging
 log:
   level: "info"  # debug, info, warn, error
   format: "text"  # text or json
+

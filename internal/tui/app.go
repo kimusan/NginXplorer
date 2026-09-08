@@ -40,6 +40,10 @@ type Model struct {
 	latHistory     []float64
 	errHistory     []float64
 
+	// Alerts tracking
+	activeAlerts   int
+	lastAlertCheck time.Time
+
 	// Time tracking
 	lastUpdate time.Time
 }
@@ -48,6 +52,7 @@ type Model struct {
 type snapshotMsg struct{ snap *metrics.Snapshot }
 type vhostMsg struct{ vhosts []string }
 type historyMsg struct{ hist *metrics.VHostHistory }
+type alertsMsg struct{ count int }
 type errMsg struct{ err error }
 type tickMsg struct{}
 
@@ -73,6 +78,7 @@ func (m Model) Init() tea.Cmd {
 		waitForSnapshot(m.client),
 		waitForVHosts(m.client),
 		waitForError(m.client),
+		fetchAlertsCmd(m.client),
 	)
 }
 
@@ -173,7 +179,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncVHosts(msg.snap.VHosts)
 		}
 		m.updateHistory()
-		return m, waitForSnapshot(m.client)
+
+		var cmd tea.Cmd = waitForSnapshot(m.client)
+		if time.Since(m.lastAlertCheck) >= 10*time.Second {
+			m.lastAlertCheck = time.Now()
+			cmd = tea.Batch(cmd, fetchAlertsCmd(m.client))
+		}
+		return m, cmd
+
+	case alertsMsg:
+		m.activeAlerts = msg.count
+		return m, nil
 
 	case vhostMsg:
 		m.vhosts = msg.vhosts
@@ -370,6 +386,10 @@ func (m Model) renderHeader() string {
 	sep := lipgloss.NewStyle().Foreground(colorMuted).Render(" │ ")
 
 	left := title + sep + vhost + sep + status
+	if m.activeAlerts > 0 {
+		alertBadge := lipgloss.NewStyle().Foreground(colorDanger).Bold(true).Render(fmt.Sprintf("🚨 %d Alert", m.activeAlerts))
+		left += sep + alertBadge
+	}
 	right := lipgloss.NewStyle().Foreground(colorTextDim).Render(timeStr)
 
 	// Calculate padding
@@ -768,6 +788,16 @@ func fetchHistoryCmd(client *SSEClient, vhost, timeRange string) tea.Cmd {
 			return errMsg{err: err}
 		}
 		return historyMsg{hist: hist}
+	}
+}
+
+func fetchAlertsCmd(client *SSEClient) tea.Cmd {
+	return func() tea.Msg {
+		alerts, err := client.FetchAlerts()
+		if err != nil {
+			return alertsMsg{count: 0}
+		}
+		return alertsMsg{count: len(alerts)}
 	}
 }
 

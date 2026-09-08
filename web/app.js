@@ -37,7 +37,16 @@ const els = {
     
     // Tables
     topPathsThead: document.querySelector('#top-paths-table thead tr'),
-    topPathsTbody: document.querySelector('#top-paths-table tbody')
+    topPathsTbody: document.querySelector('#top-paths-table tbody'),
+
+    // Alerts
+    alertsBtn: document.getElementById('alerts-btn'),
+    alertsBadge: document.getElementById('alerts-badge'),
+    alertsModal: document.getElementById('alerts-modal'),
+    closeAlertsBtn: document.getElementById('close-alerts-btn'),
+    testAlertBtn: document.getElementById('test-alert-btn'),
+    activeAlertsList: document.getElementById('active-alerts-list'),
+    recentAlertsList: document.getElementById('recent-alerts-list')
 };
 
 // Charts
@@ -207,6 +216,31 @@ function setupEventListeners() {
             els.loginError.textContent = 'Connection error';
         }
     });
+
+    if (els.alertsBtn) {
+        els.alertsBtn.addEventListener('click', () => {
+            if (els.alertsModal) {
+                els.alertsModal.classList.add('show');
+                fetchAlerts();
+            }
+        });
+    }
+
+    if (els.closeAlertsBtn) {
+        els.closeAlertsBtn.addEventListener('click', () => {
+            if (els.alertsModal) els.alertsModal.classList.remove('show');
+        });
+    }
+
+    if (els.testAlertBtn) {
+        els.testAlertBtn.addEventListener('click', sendTestAlert);
+    }
+
+    window.addEventListener('click', (e) => {
+        if (els.alertsModal && e.target === els.alertsModal) {
+            els.alertsModal.classList.remove('show');
+        }
+    });
 }
 
 async function checkAuth() {
@@ -216,6 +250,8 @@ async function checkAuth() {
             els.loginModal.classList.add('show');
         } else {
             connectSSE();
+            fetchAlerts();
+            setInterval(fetchAlerts, 10000);
         }
     } catch (err) {
         console.error('Auth check failed', err);
@@ -510,6 +546,92 @@ function updateTable(paths) {
             <td>${(p.status_2xx || 0).toFixed(0)}%</td>
         </tr>
     `).join('');
+}
+
+async function fetchAlerts() {
+    try {
+        const res = await fetch('/api/v1/alerts');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const activeCount = data.active ? data.active.length : 0;
+        if (els.alertsBadge) {
+            els.alertsBadge.textContent = activeCount;
+            if (activeCount > 0) {
+                els.alertsBadge.classList.add('badge-firing');
+            } else {
+                els.alertsBadge.classList.remove('badge-firing');
+            }
+        }
+
+        if (els.activeAlertsList) {
+            if (!data.active || data.active.length === 0) {
+                els.activeAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No active alerts. All systems healthy.</p>';
+            } else {
+                els.activeAlertsList.innerHTML = data.active.map(a => `
+                    <div class="alert-item firing">
+                        <div class="alert-item-header">
+                            <span>🚨 ${a.rule_name} (${a.vhost})</span>
+                            <span style="color: var(--color-5xx, #e02424); font-size: 0.75rem;">FIRING</span>
+                        </div>
+                        <div class="alert-item-body">
+                            <div>${a.message}</div>
+                            <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${a.details || ''} • Started ${new Date(a.started_at).toLocaleTimeString()}</div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        if (els.recentAlertsList) {
+            if (!data.recent || data.recent.length === 0) {
+                els.recentAlertsList.innerHTML = '<p class="text-muted" style="font-size: 0.85rem; color: var(--text-secondary);">No recent alert events.</p>';
+            } else {
+                els.recentAlertsList.innerHTML = data.recent.slice(0, 10).map(a => {
+                    const isFiring = a.state === 'firing';
+                    const icon = isFiring ? '🚨' : '✅';
+                    const stateClass = isFiring ? 'firing' : 'resolved';
+                    const stateText = isFiring ? 'FIRING' : 'RESOLVED';
+                    const time = isFiring ? new Date(a.started_at).toLocaleTimeString() : (a.resolved_at ? new Date(a.resolved_at).toLocaleTimeString() : '');
+                    return `
+                        <div class="alert-item ${stateClass}">
+                            <div class="alert-item-header">
+                                <span>${icon} ${a.rule_name} (${a.vhost})</span>
+                                <span style="font-size: 0.75rem; color: ${isFiring ? 'var(--color-5xx, #e02424)' : 'var(--color-2xx, #0e9f6e)'}">${stateText}</span>
+                            </div>
+                            <div class="alert-item-body">
+                                <div>${a.message}</div>
+                                <div style="font-size: 0.72rem; margin-top: 0.2rem; color: var(--text-muted);">${time}</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (err) {
+        console.error('Failed to fetch alerts', err);
+    }
+}
+
+async function sendTestAlert() {
+    if (!els.testAlertBtn) return;
+    els.testAlertBtn.disabled = true;
+    els.testAlertBtn.textContent = 'Sending...';
+    try {
+        const res = await fetch('/api/v1/alerts/test', { method: 'POST' });
+        if (res.ok) {
+            alert('Test notification sent successfully to all configured channels!');
+            fetchAlerts();
+        } else {
+            const err = await res.json().catch(() => ({}));
+            alert('Test notification failed: ' + (err.error || 'unknown error'));
+        }
+    } catch (err) {
+        alert('Test notification request failed: ' + err);
+    } finally {
+        els.testAlertBtn.disabled = false;
+        els.testAlertBtn.textContent = 'Send Test Notification';
+    }
 }
 
 // Start

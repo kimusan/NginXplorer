@@ -42,7 +42,7 @@ func TestHandleHistory(t *testing.T) {
 		t.Fatalf("failed to record metrics: %v", err)
 	}
 
-	handlers := NewHandlers(store, sqlStore)
+	handlers := NewHandlers(store, sqlStore, nil)
 
 	// 1. Missing vhost param
 	req := httptest.NewRequest("GET", "/api/v1/history", nil)
@@ -81,5 +81,13 @@ func TestHandleHistory(t *testing.T) {
 	handlers.HandleHistory(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
+	}
+
+	// 4. Test HandleAlerts
+	req = httptest.NewRequest("GET", "/api/v1/alerts", nil)
+	w = httptest.NewRecorder()
+	handlers.HandleAlerts(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for alerts endpoint, got %d", w.Code)
 	}
 }

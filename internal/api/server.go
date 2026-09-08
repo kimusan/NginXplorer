@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kimusan/nginxplorer/internal/alerting"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 	"github.com/kimusan/nginxplorer/internal/storage"
 	"github.com/kimusan/nginxplorer/web"
@@ -27,16 +28,17 @@ type Server struct {
 
 // ServerConfig holds configuration for the HTTP server.
 type ServerConfig struct {
-	Bind     string
-	Auth     AuthConfig
-	Store    *metrics.Store
-	SQLStore *storage.SQLiteStore
+	Bind        string
+	Auth        AuthConfig
+	Store       *metrics.Store
+	SQLStore    *storage.SQLiteStore
+	AlertEngine *alerting.Engine
 }
 
 // NewServer creates a new HTTP server with all routes configured.
 func NewServer(cfg ServerConfig) *Server {
 	auth := NewAuthManager(cfg.Auth)
-	handlers := NewHandlers(cfg.Store, cfg.SQLStore)
+	handlers := NewHandlers(cfg.Store, cfg.SQLStore, cfg.AlertEngine)
 	sseBroker := NewSSEBroker(cfg.Store)
 
 	s := &Server{
@@ -78,6 +80,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 			s.handlers.HandleVHosts(w, r)
 		case "/api/v1/history":
 			s.handlers.HandleHistory(w, r)
+		case "/api/v1/alerts":
+			s.handlers.HandleAlerts(w, r)
+		case "/api/v1/alerts/test":
+			s.handlers.HandleTestAlert(w, r)
 		case "/api/v1/stream":
 			s.sseBroker.ServeHTTP(w, r)
 		case "/api/v1/healthz":

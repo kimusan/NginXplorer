@@ -17,6 +17,7 @@ type Config struct {
 	Storage StorageConfig `yaml:"storage"`
 	Metrics MetricsConfig `yaml:"metrics"`
 	Privacy PrivacyConfig `yaml:"privacy"`
+	Alerts  AlertsConfig  `yaml:"alerts"`
 	Log     LogConfig     `yaml:"log"`
 }
 
@@ -88,6 +89,35 @@ type LogConfig struct {
 	Format string `yaml:"format"`
 }
 
+// AlertsConfig controls alert evaluation and notification dispatching.
+type AlertsConfig struct {
+	Enabled      bool                 `yaml:"enabled"`
+	DashboardURL string               `yaml:"dashboard_url"` // e.g. "https://stats.dublin.hackspace.tech"
+	Cooldown     string               `yaml:"cooldown"`      // e.g. "10m"
+	Rules        []AlertRuleConfig    `yaml:"rules"`
+	Channels     []AlertChannelConfig `yaml:"channels"`
+}
+
+// AlertRuleConfig defines an alert evaluation rule.
+type AlertRuleConfig struct {
+	Name        string  `yaml:"name"`
+	VHost       string  `yaml:"vhost"`        // "all" or specific vhost name
+	Metric      string  `yaml:"metric"`       // "error_rate", "latency_p95", "zero_traffic"
+	Threshold   float64 `yaml:"threshold"`    // e.g. 5.0 (%) or 1000 (ms)
+	Duration    string  `yaml:"duration"`     // evaluation window e.g. "1m"
+	MinRequests int64   `yaml:"min_requests"` // minimum requests in window before evaluating percentage rules
+	MinErrors   int64   `yaml:"min_errors"`   // minimum errors in window before firing
+}
+
+// AlertChannelConfig defines a notification destination.
+type AlertChannelConfig struct {
+	Type     string `yaml:"type"`        // "ntfy", "pushbullet", "slack", "discord", "webhook"
+	URL      string `yaml:"url"`         // destination URL (for webhook, ntfy, slack, discord)
+	Token    string `yaml:"token"`       // optional auth token (or pushbullet token)
+	APIToken string `yaml:"api_token"`   // pushbullet API access token
+	DeviceID string `yaml:"device_iden"` // optional pushbullet device iden
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -96,6 +126,10 @@ func DefaultConfig() *Config {
 		},
 		Auth: AuthConfig{
 			Enabled: false,
+		},
+		Alerts: AlertsConfig{
+			Enabled:  false,
+			Cooldown: "10m",
 		},
 		Nginx: NginxConfig{
 			StubStatusURL:      "http://127.0.0.1:8099/nginx_status",
@@ -166,6 +200,17 @@ func (c *Config) Validate() error {
 
 	if c.Metrics.MaxVHosts < 1 {
 		return fmt.Errorf("metrics.max_vhosts must be >= 1")
+	}
+
+	if c.Alerts.Enabled {
+		for i, r := range c.Alerts.Rules {
+			if r.Name == "" {
+				return fmt.Errorf("alerts.rules[%d].name is required", i)
+			}
+			if r.Metric == "" {
+				return fmt.Errorf("alerts.rules[%d].metric is required", i)
+			}
+		}
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kimusan/nginxplorer/internal/alerting"
 	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
@@ -258,4 +259,43 @@ func (c *SSEClient) FetchHistory(vhost, timeRange string) (*metrics.VHostHistory
 	}
 
 	return &hist, nil
+}
+
+// FetchAlerts queries the daemon for currently firing alerts.
+func (c *SSEClient) FetchAlerts() ([]alerting.AlertEvent, error) {
+	if c.token == "" && c.username != "" && c.password != "" {
+		if err := c.login(); err != nil {
+			return nil, err
+		}
+	}
+
+	reqURL := fmt.Sprintf("%s/api/v1/alerts", c.url)
+	if c.token != "" {
+		reqURL += "?token=" + c.token
+	}
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("alerts request returned %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Active []alerting.AlertEvent `json:"active"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+
+	return data.Active, nil
 }
