@@ -36,6 +36,7 @@ const els = {
     statUv: document.getElementById('stat-uv'),
     
     // Tables
+    topPathsThead: document.querySelector('#top-paths-table thead tr'),
     topPathsTbody: document.querySelector('#top-paths-table tbody')
 };
 
@@ -387,9 +388,22 @@ function aggregateVHosts(vhosts) {
             agg.status_codes['4xx'] += v.status_codes['4xx'] || 0;
             agg.status_codes['5xx'] += v.status_codes['5xx'] || 0;
         }
+
+        if (v.top_paths) {
+            v.top_paths.forEach(tp => {
+                agg.top_paths.push({
+                    ...tp,
+                    vhost: tp.vhost || name
+                });
+            });
+        }
     }
     
     if (totalReqs > 0) agg.error_rate = totalErrors / totalReqs;
+
+    // Sort combined top paths across all vhosts by RPS descending and limit to top 10
+    agg.top_paths.sort((a, b) => (b.rps || 0) - (a.rps || 0));
+    agg.top_paths = agg.top_paths.slice(0, 10);
     
     return agg;
 }
@@ -430,17 +444,42 @@ function updateTimeSeries(ts, m) {
 }
 
 function updateTable(paths) {
+    const isAll = state.currentVHost === 'all';
+    
+    // Update headers dynamically
+    if (els.topPathsThead) {
+        if (isAll) {
+            els.topPathsThead.innerHTML = `
+                <th>VHost</th>
+                <th>Path</th>
+                <th>Req/s</th>
+                <th>Avg Latency</th>
+                <th>2xx %</th>
+            `;
+        } else {
+            els.topPathsThead.innerHTML = `
+                <th>Path</th>
+                <th>Req/s</th>
+                <th>Avg Latency</th>
+                <th>2xx %</th>
+            `;
+        }
+    }
+
     if (!paths || paths.length === 0) {
-        els.topPathsTbody.innerHTML = '<tr><td colspan="4">No data</td></tr>';
+        const colSpan = isAll ? 5 : 4;
+        els.topPathsTbody.innerHTML = `<tr><td colspan="${colSpan}">No data</td></tr>`;
         return;
     }
     
-    els.topPathsTbody.innerHTML = paths.slice(0, 5).map(p => `
+    const limit = isAll ? 10 : 6;
+    els.topPathsTbody.innerHTML = paths.slice(0, limit).map(p => `
         <tr>
+            ${isAll ? `<td style="font-weight:600; color:var(--accent);">${p.vhost || '-'}</td>` : ''}
             <td>${p.path}</td>
             <td>${(p.rps || 0).toFixed(1)}</td>
             <td>${(p.avg_latency || 0).toFixed(1)}ms</td>
-            <td>${p.status_2xx || 0}%</td>
+            <td>${(p.status_2xx || 0).toFixed(0)}%</td>
         </tr>
     `).join('');
 }

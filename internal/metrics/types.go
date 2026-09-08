@@ -66,6 +66,7 @@ type Bandwidth struct {
 
 // PathStats holds per-path aggregated metrics.
 type PathStats struct {
+	VHost      string  `json:"vhost,omitempty"`
 	Path       string  `json:"path"`
 	RPS        float64 `json:"rps"`
 	AvgLatency float64 `json:"avg_latency"` // ms

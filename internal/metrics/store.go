@@ -241,6 +241,9 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 
 	nowUnix := now.Unix()
 	topPaths := vh.PathCounts.Top(10, float64(windowSecs))
+	for i := range topPaths {
+		topPaths[i].VHost = vh.Name
+	}
 	visitors := vh.Visitors.Count(nowUnix)
 
 	return VHostMetrics{

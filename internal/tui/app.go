@@ -222,6 +222,14 @@ func (m *Model) aggregateAll() metrics.VHostMetrics {
 		agg.TopPaths = append(agg.TopPaths, vm.TopPaths...)
 	}
 
+	// Sort merged top paths across all vhosts by RPS descending
+	sort.Slice(agg.TopPaths, func(i, j int) bool {
+		return agg.TopPaths[i].RPS > agg.TopPaths[j].RPS
+	})
+	if len(agg.TopPaths) > 10 {
+		agg.TopPaths = agg.TopPaths[:10]
+	}
+
 	if count > 0 {
 		agg.Latency.P50 /= float64(count)
 		agg.Latency.P95 /= float64(count)
@@ -559,8 +567,12 @@ func (m Model) renderTopPaths() string {
 
 	header := sectionStyle.Render("  Top Paths")
 
-	// Table header
+	isAll := m.activeVHost == 0
+	vhostW := 18
 	pathW := m.width - 45
+	if isAll {
+		pathW = m.width - 45 - vhostW - 1
+	}
 	if pathW < 20 {
 		pathW = 20
 	}
@@ -568,8 +580,14 @@ func (m Model) renderTopPaths() string {
 		pathW = 50
 	}
 
-	hdr := fmt.Sprintf("  %-*s %8s %10s %8s",
-		pathW, "Path", "Req/s", "Avg Lat", "2xx %")
+	var hdr string
+	if isAll {
+		hdr = fmt.Sprintf("  %-*s %-*s %8s %10s %8s",
+			vhostW, "VHost", pathW, "Path", "Req/s", "Avg Lat", "2xx %")
+	} else {
+		hdr = fmt.Sprintf("  %-*s %8s %10s %8s",
+			pathW, "Path", "Req/s", "Avg Lat", "2xx %")
+	}
 	headerLine := tableHeaderStyle.Render(hdr)
 
 	if len(vm.TopPaths) == 0 {
@@ -585,9 +603,21 @@ func (m Model) renderTopPaths() string {
 
 	for i := 0; i < limit; i++ {
 		p := vm.TopPaths[i]
-		row := fmt.Sprintf("  %-*s %8.1f %8.1fms %7.0f%%",
-			pathW, truncate(p.Path, pathW-1),
-			p.RPS, p.AvgLatency, p.Status2xx)
+		var row string
+		if isAll {
+			vh := p.VHost
+			if vh == "" {
+				vh = "-"
+			}
+			row = fmt.Sprintf("  %-*s %-*s %8.1f %8.1fms %7.0f%%",
+				vhostW, truncate(vh, vhostW-1),
+				pathW, truncate(p.Path, pathW-1),
+				p.RPS, p.AvgLatency, p.Status2xx)
+		} else {
+			row = fmt.Sprintf("  %-*s %8.1f %8.1fms %7.0f%%",
+				pathW, truncate(p.Path, pathW-1),
+				p.RPS, p.AvgLatency, p.Status2xx)
+		}
 		rows += tableRowStyle.Render(row) + "\n"
 	}
 
