@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NginXplorer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>📡 NginXplorer</h2>
+            </div>
+            <div class="sidebar-nav">
+                <h3>VHosts</h3>
+                <ul id="vhost-list">
+                    <li class="active" data-vhost="all">All VHosts</li>
+                </ul>
+                <div class="spacer"></div>
+                <h3>Settings</h3>
+                <ul>
+                    <li id="theme-toggle">🌓 Toggle Theme</li>
+                    <li id="logout-btn" style="display:none;">🚪 Logout</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <select id="vhost-select">
+                        <option value="all">All VHosts</option>
+                    </select>
+                </div>
+                <div class="topbar-right">
+                    <div class="time-ranges">
+                        <button class="active" data-range="live">Live</button>
+                        <button data-range="1h">1h</button>
+                        <button data-range="6h">6h</button>
+                        <button data-range="24h">24h</button>
+                        <button data-range="7d">7d</button>
+                        <button data-range="30d">30d</button>
+                    </div>
+                    <button id="pause-toggle">⏸️ Pause</button>
+                </div>
+            </header>
+
+            <!-- Dashboard Content -->
+            <div class="dashboard-grid">
+                <!-- Stat Cards -->
+                <div class="stat-cards">
+                    <div class="card stat-card">
+                        <div class="stat-title">Requests/s</div>
+                        <div class="stat-value" id="stat-rps">0</div>
+                        <div class="stat-trend" id="trend-rps"></div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-title">Error Rate %</div>
+                        <div class="stat-value" id="stat-errors">0.0%</div>
+                        <div class="stat-trend" id="trend-errors"></div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-title">Avg Latency</div>
+                        <div class="stat-value" id="stat-latency">0ms</div>
+                        <div class="stat-trend" id="trend-latency"></div>
+                    </div>
+                    <div class="card stat-card">
+                        <div class="stat-title">Active Connections</div>
+                        <div class="stat-value" id="stat-connections">0</div>
+                        <div class="stat-trend" id="trend-connections"></div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 1 -->
+                <div class="chart-row">
+                    <div class="card chart-card">
+                        <h3>Request Rate</h3>
+                        <div id="chart-rps" class="uplot-chart"></div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Response Time</h3>
+                        <div id="chart-latency" class="uplot-chart"></div>
+                    </div>
+                </div>
+
+                <!-- Charts Row 2 -->
+                <div class="chart-row">
+                    <div class="card chart-card">
+                        <h3>Status Codes</h3>
+                        <div id="chart-status" class="echarts-chart" style="height: 300px;"></div>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Latency Distribution</h3>
+                        <div id="chart-latency-hist" class="echarts-chart" style="height: 300px;"></div>
+                    </div>
+                </div>
+
+                <!-- Bottom Row -->
+                <div class="chart-row">
+                    <div class="card chart-card flex-2">
+                        <h3>Top Paths</h3>
+                        <div class="table-container">
+                            <table id="top-paths-table">
+                                <thead>
+                                    <tr>
+                                        <th>Path</th>
+                                        <th>Req/s</th>
+                                        <th>Avg Latency</th>
+                                        <th>2xx %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card chart-card flex-1">
+                        <h3>Unique Visitors</h3>
+                        <div class="unique-visitors">
+                            <div class="uv-value" id="stat-uv">0</div>
+                            <div class="uv-sparkline" id="spark-uv"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal">
+        <div class="modal-content">
+            <h2>NginXplorer Login</h2>
+            <form id="login-form">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <div class="form-group error-msg" id="login-error"></div>
+                <button type="submit">Login</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
