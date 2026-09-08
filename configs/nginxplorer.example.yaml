@@ -1,0 +1,58 @@
+# NginXplorer Configuration
+# Copy this to /etc/nginxplorer/config.yaml or ~/.config/nginxplorer/config.yaml
+
+server:
+  # Address to bind the web dashboard
+  bind: "127.0.0.1:9100"
+  # Set to 0.0.0.0:9100 to expose remotely (requires auth)
+
+auth:
+  # Enable authentication (required when bind is not localhost)
+  enabled: true
+  # Username and password for web dashboard login
+  # Password is stored as bcrypt hash. Generate with:
+  #   nginxplorer hash-password
+  users:
+    - username: admin
+      # Default password: 'changeme' — CHANGE THIS!
+      password_hash: "$2a$10$K0E.nADuD0f39ELn1mV72uq75kL8whLrKex0g4Q9lE4CuRSRLpXQ2"
+
+nginx:
+  # stub_status URL (usually on localhost)
+  stub_status_url: "http://127.0.0.1:8099/nginx_status"
+  # How often to poll stub_status (milliseconds)
+  stub_status_interval: 500
+  
+  # VTS module status URL (optional, leave empty to disable)
+  vts_status_url: ""
+  
+  # Unix socket to receive JSON access logs from Nginx syslog
+  log_socket: "/var/run/nginxplorer.sock"
+  # Alternative: path to access log file to tail
+  # log_file: "/var/log/nginx/access.log"
+
+storage:
+  # Path to SQLite database for historical data
+  db_path: "/var/lib/nginxplorer/data.db"
+  # Retention: how many days of historical data to keep
+  retention_days: 30
+
+metrics:
+  # Maximum number of vhosts to track (memory sizing)
+  max_vhosts: 50
+  # Maximum number of top paths to track per vhost
+  max_top_paths: 100
+  # Maximum number of unique visitors window (minutes)
+  visitor_window_minutes: 5
+
+# Privacy settings
+privacy:
+  # Anonymize IP addresses (mask last octet)
+  anonymize_ips: false
+  # Don't log query strings
+  strip_query_strings: true
+
+# Logging
+log:
+  level: "info"  # debug, info, warn, error
+  format: "text"  # text or json
