@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kimusan/nginxplorer/internal/metrics"
@@ -94,21 +96,36 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	fileServer := http.FileServer(http.FS(webFS))
 
-	// Serve index.html for root and any non-API, non-file paths (SPA routing)
+	// Serve static files and fallback to index.html for SPA routes
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Try to serve a static file first
-		if r.URL.Path != "/" {
-			// Check if file exists in embedded FS
-			f, err := webFS.Open(r.URL.Path[1:]) // strip leading /
-			if err == nil {
-				f.Close()
-				fileServer.ServeHTTP(w, r)
+		cleanPath := strings.TrimPrefix(r.URL.Path, "/")
+		if cleanPath == "" || cleanPath == "index.html" {
+			data, err := webFS.Open("index.html")
+			if err != nil {
+				http.Error(w, "index.html not found", http.StatusNotFound)
 				return
 			}
+			defer data.Close()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			http.ServeContent(w, r, "index.html", time.Time{}, data.(io.ReadSeeker))
+			return
 		}
 
-		// Serve index.html for root and SPA routes
-		r.URL.Path = "/index.html"
+		f, err := webFS.Open(cleanPath)
+		if err != nil {
+			// Fallback to index.html for SPA
+			data, err := webFS.Open("index.html")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer data.Close()
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			http.ServeContent(w, r, "index.html", time.Time{}, data.(io.ReadSeeker))
+			return
+		}
+		defer f.Close()
+
 		fileServer.ServeHTTP(w, r)
 	})
 }
