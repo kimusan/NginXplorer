@@ -65,6 +65,7 @@ function init() {
     initTheme();
     initCharts();
     setupEventListeners();
+    initPwaInstall();
     checkAuth();
 }
 
@@ -896,6 +897,148 @@ async function sendTestAlert() {
     } finally {
         els.testAlertBtn.disabled = false;
         els.testAlertBtn.textContent = 'Send Test Notification';
+    }
+}
+
+// PWA Mobile Install Controller
+let deferredPrompt = null;
+
+function isPwaStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true ||
+           document.referrer.includes('android-app://');
+}
+
+function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+           (window.matchMedia('(max-width: 768px)').matches && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+}
+
+function isIOS() {
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+}
+
+function isInstallPromptDismissed() {
+    const dismissed = localStorage.getItem('nginxplorer_pwa_dismissed');
+    if (!dismissed) return false;
+    const dismissedTime = parseInt(dismissed, 10);
+    // Snooze for 7 days
+    return (Date.now() - dismissedTime) < 7 * 24 * 60 * 60 * 1000;
+}
+
+function initPwaInstall() {
+    const banner = document.getElementById('pwa-install-banner');
+    const desc = document.getElementById('pwa-banner-desc');
+    const installBtn = document.getElementById('pwa-install-btn');
+    const dismissBtn = document.getElementById('pwa-dismiss-btn');
+    const navInstall = document.getElementById('pwa-install-nav');
+
+    if (!banner || !installBtn || !dismissBtn) return;
+
+    // If already running in standalone / installed PWA mode, do nothing
+    if (isPwaStandalone()) {
+        if (navInstall) navInstall.style.display = 'none';
+        return;
+    }
+
+    const showBanner = (isIosPrompt = false) => {
+        if (isInstallPromptDismissed()) return;
+        if (isIosPrompt) {
+            if (desc) desc.innerHTML = 'Tap the Share button <b style="color:var(--text-primary);">⎋</b> and select <b style="color:var(--text-primary);">"Add to Home Screen ➕"</b>';
+            installBtn.textContent = 'Got it';
+        } else {
+            if (desc) desc.textContent = 'Add to Home Screen for fast, fullscreen dashboard access';
+            installBtn.textContent = 'Install';
+        }
+        banner.style.display = 'flex';
+        // Trigger transition
+        setTimeout(() => banner.classList.add('visible'), 50);
+    };
+
+    const hideBanner = (userDismissed = false) => {
+        banner.classList.remove('visible');
+        setTimeout(() => {
+            banner.style.display = 'none';
+        }, 400);
+        if (userDismissed) {
+            localStorage.setItem('nginxplorer_pwa_dismissed', Date.now().toString());
+        }
+    };
+
+    // Chromium / Android beforeinstallprompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+
+        // Show sidebar install button
+        if (navInstall) navInstall.style.display = 'block';
+
+        // Automatically prompt on mobile devices if not dismissed
+        if (isMobileDevice() && !isInstallPromptDismissed()) {
+            // Delay slightly so the user sees the dashboard before prompting
+            setTimeout(() => {
+                showBanner(false);
+            }, 1500);
+        }
+    });
+
+    // Installed event
+    window.addEventListener('appinstalled', () => {
+        deferredPrompt = null;
+        hideBanner(false);
+        if (navInstall) navInstall.style.display = 'none';
+    });
+
+    // Handle Install Button click
+    installBtn.addEventListener('click', async () => {
+        if (deferredPrompt) {
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') {
+                hideBanner(false);
+            } else {
+                hideBanner(true);
+            }
+            deferredPrompt = null;
+        } else if (isIOS()) {
+            hideBanner(true);
+        } else {
+            hideBanner(true);
+        }
+    });
+
+    // Handle Dismiss Button click
+    dismissBtn.addEventListener('click', () => {
+        hideBanner(true);
+    });
+
+    // Handle Sidebar "Install App" click
+    if (navInstall) {
+        navInstall.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    hideBanner(false);
+                }
+                deferredPrompt = null;
+            } else if (isIOS()) {
+                // Show iOS instructions banner
+                showBanner(true);
+            } else {
+                alert('To install NginXplorer, use your browser menu (⋮ or ⎋) and select "Add to Home screen" or "Install App".');
+            }
+        });
+    }
+
+    // iOS mobile Safari handling: beforeinstallprompt is not supported
+    if (isIOS() && isMobileDevice() && !isPwaStandalone()) {
+        if (navInstall) navInstall.style.display = 'block';
+        if (!isInstallPromptDismissed()) {
+            setTimeout(() => {
+                showBanner(true);
+            }, 2500);
+        }
     }
 }
 

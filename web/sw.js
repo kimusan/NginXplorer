@@ -1,11 +1,13 @@
-const CACHE_NAME = 'nginxplorer-v4';
+const CACHE_NAME = 'nginxplorer-v5';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
     '/styles.css',
     '/app.js',
     '/manifest.json',
-    '/icon.svg'
+    '/icon.svg',
+    '/icon-192.png',
+    '/icon-512.png'
 ];
 
 // Install: pre-cache static application shell

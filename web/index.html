@@ -29,6 +29,7 @@
                 <div class="spacer"></div>
                 <h3>Settings</h3>
                 <ul>
+                    <li id="pwa-install-nav" style="display:none;">📲 Install App</li>
                     <li id="theme-toggle">🌓 Toggle Theme</li>
                     <li id="logout-btn" style="display:none;">🚪 Logout</li>
                 </ul>
@@ -188,6 +189,23 @@
                     <button id="test-alert-btn" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">Send Test Notification</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- PWA Install Mobile Prompt Banner -->
+    <div id="pwa-install-banner" class="pwa-install-banner" role="dialog" aria-label="Install NginXplorer App">
+        <div class="pwa-banner-content">
+            <div class="pwa-banner-icon">
+                <img src="/icon-192.png" alt="NginXplorer" width="38" height="38">
+            </div>
+            <div class="pwa-banner-text">
+                <div class="pwa-banner-title">Install NginXplorer</div>
+                <div class="pwa-banner-desc" id="pwa-banner-desc">Add to Home Screen for fast, fullscreen dashboard access</div>
+            </div>
+        </div>
+        <div class="pwa-banner-actions">
+            <button id="pwa-install-btn" class="pwa-btn-install">Install</button>
+            <button id="pwa-dismiss-btn" class="pwa-btn-dismiss" title="Dismiss" aria-label="Dismiss">✕</button>
         </div>
     </div>
 
