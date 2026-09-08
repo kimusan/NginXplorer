@@ -42,6 +42,8 @@ func main() {
 	bindAddr := flag.String("bind", "", "Override bind address (e.g., 0.0.0.0:9100)")
 	connectAddr := flag.String("connect", "http://127.0.0.1:9100", "Daemon address to connect to (TUI mode)")
 	authToken := flag.String("token", "", "Authentication token for TUI mode")
+	authUser := flag.String("user", "", "Username for TUI authentication")
+	authPass := flag.String("pass", "", "Password for TUI authentication")
 	flag.Parse()
 
 	// Handle subcommands
@@ -61,7 +63,7 @@ func main() {
 
 	// TUI mode — connect to running daemon and display terminal dashboard
 	if *tuiMode {
-		if err := tui.Run(*connectAddr, *authToken); err != nil {
+		if err := tui.Run(*connectAddr, *authToken, *authUser, *authPass); err != nil {
 			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 			os.Exit(1)
 		}

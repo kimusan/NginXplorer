@@ -49,8 +49,8 @@ type errMsg struct{ err error }
 type tickMsg struct{}
 
 // NewModel creates a new TUI model connected to the daemon.
-func NewModel(addr, token string) Model {
-	client := NewSSEClient(addr, token)
+func NewModel(addr, token, username, password string) Model {
+	client := NewSSEClient(addr, token, username, password)
 
 	return Model{
 		client:      client,
@@ -685,8 +685,8 @@ func waitForError(client *SSEClient) tea.Cmd {
 }
 
 // Run starts the TUI application.
-func Run(addr, token string) error {
-	model := NewModel(addr, token)
+func Run(addr, token, username, password string) error {
+	model := NewModel(addr, token, username, password)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
 	return err

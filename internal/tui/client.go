@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,19 +15,23 @@ import (
 // SSEClient connects to the NginXplorer daemon's SSE stream and
 // delivers parsed metric snapshots to the TUI via a channel.
 type SSEClient struct {
-	url      string
-	token    string
+	url       string
+	token     string
+	username  string
+	password  string
 	Snapshots chan *metrics.Snapshot
 	VHosts    chan []string
 	Errors    chan error
-	done     chan struct{}
+	done      chan struct{}
 }
 
 // NewSSEClient creates a new SSE client targeting the given daemon URL.
-func NewSSEClient(url, token string) *SSEClient {
+func NewSSEClient(url, token, username, password string) *SSEClient {
 	return &SSEClient{
 		url:       url,
 		token:     token,
+		username:  username,
+		password:  password,
 		Snapshots: make(chan *metrics.Snapshot, 10),
 		VHosts:    make(chan []string, 1),
 		Errors:    make(chan error, 5),
@@ -77,7 +82,48 @@ func (c *SSEClient) connectLoop() {
 	}
 }
 
+func (c *SSEClient) login() error {
+	if c.username == "" || c.password == "" {
+		return nil
+	}
+
+	payload, err := json.Marshal(map[string]string{
+		"username": c.username,
+		"password": c.password,
+	})
+	if err != nil {
+		return err
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Post(c.url+"/api/v1/auth/login", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("login request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("login failed: invalid credentials (status %d)", resp.StatusCode)
+	}
+
+	var res struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return fmt.Errorf("decoding login response: %w", err)
+	}
+
+	c.token = res.Token
+	return nil
+}
+
 func (c *SSEClient) stream() error {
+	if c.token == "" && c.username != "" && c.password != "" {
+		if err := c.login(); err != nil {
+			return err
+		}
+	}
+
 	streamURL := c.url + "/api/v1/stream"
 	if c.token != "" {
 		streamURL += "?token=" + c.token
@@ -101,7 +147,7 @@ func (c *SSEClient) stream() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("authentication required (401) — use --token flag")
+		return fmt.Errorf("auth required (401) — pass -user and -pass, or -token")
 	}
 
 	if resp.StatusCode != http.StatusOK {
