@@ -8,7 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // Braille dot patterns for sparkline rendering.

@@ -82,7 +82,7 @@ Get NginXplorer up and running in 3 simple steps:
 Clone the repository and build the binary:
 
 ```bash
-git clone https://github.com/kim/nginxplorer.git
+git clone https://github.com/kimusan/nginxplorer.git
 cd nginxplorer
 make build
 sudo make install
@@ -135,7 +135,7 @@ Open your browser at **`http://127.0.0.1:9100`** and log in with:
 
 ```bash
 # Clone repository
-git clone https://github.com/kim/nginxplorer.git
+git clone https://github.com/kimusan/nginxplorer.git
 cd nginxplorer
 
 # Build binary

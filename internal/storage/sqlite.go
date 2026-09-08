@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 
 	_ "modernc.org/sqlite"
 )

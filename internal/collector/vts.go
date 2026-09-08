@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // VTSCollector scrapes the nginx-module-vts JSON status endpoint.

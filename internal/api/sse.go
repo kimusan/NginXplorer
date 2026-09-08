@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // SSEBroker manages Server-Sent Events connections to web clients.

@@ -1,4 +1,4 @@
-module github.com/kim/nginxplorer
+module github.com/kimusan/nginxplorer
 
 go 1.26.0
 

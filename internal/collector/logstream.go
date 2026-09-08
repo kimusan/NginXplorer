@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // LogStreamCollector receives JSON access logs from Nginx via Unix domain socket or tailing a log file.

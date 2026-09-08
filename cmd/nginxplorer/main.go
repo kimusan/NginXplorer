@@ -24,12 +24,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/kim/nginxplorer/internal/api"
-	"github.com/kim/nginxplorer/internal/collector"
-	"github.com/kim/nginxplorer/internal/config"
-	"github.com/kim/nginxplorer/internal/metrics"
-	"github.com/kim/nginxplorer/internal/storage"
-	"github.com/kim/nginxplorer/internal/tui"
+	"github.com/kimusan/nginxplorer/internal/api"
+	"github.com/kimusan/nginxplorer/internal/collector"
+	"github.com/kimusan/nginxplorer/internal/config"
+	"github.com/kimusan/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/storage"
+	"github.com/kimusan/nginxplorer/internal/tui"
 )
 
 var version = "dev"

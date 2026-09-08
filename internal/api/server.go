@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
-	"github.com/kim/nginxplorer/web"
+	"github.com/kimusan/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/web"
 )
 
 // Server is the main HTTP server for NginXplorer's web dashboard and API.

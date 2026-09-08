@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // SSEClient connects to the NginXplorer daemon's SSE stream and

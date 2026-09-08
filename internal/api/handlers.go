@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // Handlers holds the HTTP API route handlers.

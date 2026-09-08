@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kim/nginxplorer/internal/metrics"
+	"github.com/kimusan/nginxplorer/internal/metrics"
 )
 
 // StubStatusCollector polls Nginx's stub_status endpoint.
