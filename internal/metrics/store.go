@@ -126,6 +126,10 @@ func (s *Store) RecordEntry(entry *LogEntry) {
 	// Latency tracking (T-Digest)
 	vh.Digest.Add(entry.RequestTime)
 
+	// Latency histogram distribution bucketing
+	bIdx := LatencyBucketIndex(entry.RequestTime)
+	vh.CurrentSecond.LatencyBuckets[bIdx]++
+
 	// Unique visitor tracking (HyperLogLog)
 	vh.Visitors.Add(entry.RemoteAddr, entry.Timestamp.Unix())
 
@@ -255,6 +259,26 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		totalBotTraffic.BadBotRequests += bucket.BotTraffic.BadBotRequests
 	}
 
+	// Aggregate latency histogram distribution over the active ring buffer (last hour of traffic)
+	var totalLatencyBuckets [10]int64
+	for b := 0; b < 10; b++ {
+		totalLatencyBuckets[b] += vh.CurrentSecond.LatencyBuckets[b]
+	}
+	for i := 0; i < len(vh.Seconds); i++ {
+		bucket := vh.Seconds[i]
+		if bucket.Timestamp.IsZero() {
+			continue
+		}
+		if now.Sub(bucket.Timestamp) > 1*time.Hour {
+			continue
+		}
+		for b := 0; b < 10; b++ {
+			totalLatencyBuckets[b] += bucket.LatencyBuckets[b]
+		}
+	}
+	latBuckets := make([]int64, 10)
+	copy(latBuckets, totalLatencyBuckets[:])
+
 	rps := 0.0
 	if validSeconds > 0 {
 		rps = float64(totalReqs) / float64(validSeconds)
@@ -278,6 +302,7 @@ func (s *Store) computeVHostMetrics(vh *VHostState, now time.Time) VHostMetrics 
 		ErrorRate:      errorRate,
 		StatusCodes:    totalStatusCodes,
 		Latency:        vh.Digest.Stats(),
+		LatencyBuckets: latBuckets,
 		Bandwidth:      Bandwidth{In: totalBytesIn, Out: totalBytesOut},
 		UniqueVisitors: visitors,
 		BotTraffic:     totalBotTraffic,

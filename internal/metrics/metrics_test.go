@@ -313,3 +313,85 @@ func TestStore_GetHistory_Latency(t *testing.T) {
 		t.Errorf("expected latency 50.0ms, got %f", hist.LatencyP95[0].Value)
 	}
 }
+
+func TestLatencyBucketIndex(t *testing.T) {
+	tests := []struct {
+		duration float64
+		expected int
+	}{
+		{0.002, 0}, // 2ms < 10ms
+		{0.009, 0}, // 9ms < 10ms
+		{0.010, 1}, // 10ms -> 10-20ms
+		{0.019, 1}, // 19ms -> 10-20ms
+		{0.020, 2}, // 20ms -> 20-50ms
+		{0.049, 2}, // 49ms -> 20-50ms
+		{0.050, 3}, // 50ms -> 50-100ms
+		{0.099, 3}, // 99ms -> 50-100ms
+		{0.100, 4}, // 100ms -> 100-200ms
+		{0.199, 4}, // 199ms -> 100-200ms
+		{0.200, 5}, // 200ms -> 200-500ms
+		{0.499, 5}, // 499ms -> 200-500ms
+		{0.500, 6}, // 500ms -> 500ms-1s
+		{0.999, 6}, // 999ms -> 500ms-1s
+		{1.000, 7}, // 1s -> 1-2s
+		{1.999, 7}, // 1.999s -> 1-2s
+		{2.000, 8}, // 2s -> 2-5s
+		{4.999, 8}, // 4.999s -> 2-5s
+		{5.000, 9}, // 5s -> >5s
+		{12.34, 9}, // 12.34s -> >5s
+	}
+
+	for _, tc := range tests {
+		got := LatencyBucketIndex(tc.duration)
+		if got != tc.expected {
+			t.Errorf("LatencyBucketIndex(%f) = %d, want %d", tc.duration, got, tc.expected)
+		}
+	}
+}
+
+func TestStore_LatencyBuckets(t *testing.T) {
+	store := NewStore(10, 10, 5)
+	now := time.Now()
+
+	// 2 requests <10ms
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.1", Status: 200, RequestTime: 0.005, Timestamp: now})
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.1", Status: 200, RequestTime: 0.008, Timestamp: now})
+
+	// 1 request 50-100ms
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.2", Status: 200, RequestTime: 0.060, Timestamp: now})
+
+	// 3 requests >5s
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.3", Status: 504, RequestTime: 5.5, Timestamp: now})
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.3", Status: 504, RequestTime: 6.0, Timestamp: now})
+	store.RecordEntry(&LogEntry{Host: "example.com", RemoteAddr: "1.1.1.3", Status: 504, RequestTime: 8.2, Timestamp: now})
+
+	snap := store.Snapshot()
+	vh, ok := snap.VHosts["example.com"]
+	if !ok {
+		t.Fatalf("expected vhost example.com in snapshot")
+	}
+
+	if len(vh.LatencyBuckets) != 10 {
+		t.Fatalf("expected 10 latency buckets, got %d", len(vh.LatencyBuckets))
+	}
+
+	if vh.LatencyBuckets[0] != 2 {
+		t.Errorf("expected bucket 0 (<10ms) to have 2 reqs, got %d", vh.LatencyBuckets[0])
+	}
+	if vh.LatencyBuckets[3] != 1 {
+		t.Errorf("expected bucket 3 (50-100ms) to have 1 req, got %d", vh.LatencyBuckets[3])
+	}
+	if vh.LatencyBuckets[9] != 3 {
+		t.Errorf("expected bucket 9 (>5s) to have 3 reqs, got %d", vh.LatencyBuckets[9])
+	}
+
+	// Commit second and verify it aggregates across ring buffer
+	store.commitSecond(now)
+
+	snap2 := store.Snapshot()
+	vh2 := snap2.VHosts["example.com"]
+	if vh2.LatencyBuckets[0] != 2 || vh2.LatencyBuckets[3] != 1 || vh2.LatencyBuckets[9] != 3 {
+		t.Errorf("expected committed second to maintain histogram counts in ring buffer, got %+v", vh2.LatencyBuckets)
+	}
+}
+

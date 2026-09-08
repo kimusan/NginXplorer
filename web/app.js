@@ -159,6 +159,7 @@ function initCharts() {
     if (clientTypeEl) {
         clientTypeChart = echarts.init(clientTypeEl);
     }
+    updateECharts({}, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
 
     // ResizeObserver for fluid, robust responsive resizing without overflow
     const ro = new ResizeObserver((entries) => {
@@ -251,34 +252,67 @@ function updateClientTypeChart(botTraffic) {
 }
 
 function updateECharts(statusCodes, latencyBuckets) {
-    if (!statusCodes) statusCodes = {};
-    
-    // Status
-    const statusData = [
-        { value: statusCodes['2xx'] || 0, name: '2xx', itemStyle: { color: '#10b981' } },
-        { value: statusCodes['3xx'] || 0, name: '3xx', itemStyle: { color: '#3b82f6' } },
-        { value: statusCodes['4xx'] || 0, name: '4xx', itemStyle: { color: '#f59e0b' } },
-        { value: statusCodes['5xx'] || 0, name: '5xx', itemStyle: { color: '#ef4444' } }
-    ];
-    statusChart.setOption({
-        tooltip: { trigger: 'item' },
-        series: [{
-            type: 'pie',
-            radius: ['40%', '70%'],
-            data: statusData,
-            label: { color: 'var(--text-primary)' }
-        }]
-    });
+    if (statusChart && statusCodes) {
+        const statusData = [
+            { value: statusCodes['2xx'] || 0, name: '2xx', itemStyle: { color: '#10b981' } },
+            { value: statusCodes['3xx'] || 0, name: '3xx', itemStyle: { color: '#3b82f6' } },
+            { value: statusCodes['4xx'] || 0, name: '4xx', itemStyle: { color: '#f59e0b' } },
+            { value: statusCodes['5xx'] || 0, name: '5xx', itemStyle: { color: '#ef4444' } }
+        ];
+        statusChart.setOption({
+            tooltip: { trigger: 'item' },
+            series: [{
+                type: 'pie',
+                radius: ['40%', '70%'],
+                data: statusData,
+                label: { color: 'var(--text-primary)' }
+            }]
+        });
+    }
 
-    // Histogram
-    const latData = latencyBuckets || [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    const latAxis = ['<10ms', '10-20', '20-50', '50-100', '100-200', '200-500', '500-1s', '1-2s', '2-5s', '>5s'];
-    latencyHistChart.setOption({
-        tooltip: { trigger: 'axis' },
-        xAxis: { type: 'category', data: latAxis, axisLabel: { color: 'var(--text-secondary)' } },
-        yAxis: { type: 'value', axisLabel: { color: 'var(--text-secondary)' }, splitLine: { lineStyle: { color: 'rgba(128,128,128,0.2)' } } },
-        series: [{ type: 'bar', data: latData, itemStyle: { color: '#8b5cf6' } }]
-    });
+    if (latencyHistChart && latencyBuckets) {
+        const latAxis = ['<10ms', '10-20', '20-50', '50-100', '100-200', '200-500', '500-1s', '1-2s', '2-5s', '>5s'];
+        latencyHistChart.setOption({
+            tooltip: {
+                trigger: 'axis',
+                formatter: (params) => {
+                    const p = params[0];
+                    return `${p.name}: <b>${(p.value || 0).toLocaleString()}</b> reqs`;
+                }
+            },
+            grid: {
+                top: 20,
+                bottom: 35,
+                left: 45,
+                right: 15
+            },
+            xAxis: {
+                type: 'category',
+                data: latAxis,
+                axisLabel: {
+                    color: 'var(--text-secondary)',
+                    fontSize: 10,
+                    interval: 0,
+                    rotate: 25
+                },
+                axisLine: { lineStyle: { color: 'rgba(128,128,128,0.3)' } }
+            },
+            yAxis: {
+                type: 'value',
+                minInterval: 1,
+                axisLabel: { color: 'var(--text-secondary)', fontSize: 10 },
+                splitLine: { lineStyle: { color: 'rgba(128,128,128,0.15)' } }
+            },
+            series: [{
+                type: 'bar',
+                data: latencyBuckets,
+                itemStyle: {
+                    color: '#8b5cf6',
+                    borderRadius: [4, 4, 0, 0]
+                }
+            }]
+        });
+    }
 }
 
 function setupEventListeners() {
@@ -545,8 +579,8 @@ function processHistory(data) {
         const uvFormatted = s.unique_visitors ? s.unique_visitors.toLocaleString() : '0';
         els.statUv.textContent = uvFormatted;
 
-        if (s.status_codes) {
-            updateECharts(s.status_codes, null);
+        if (s.status_codes || s.latency_buckets) {
+            updateECharts(s.status_codes, s.latency_buckets || null);
         }
         if (s.bot_traffic) {
             updateClientTypeChart(s.bot_traffic);
@@ -569,7 +603,7 @@ function processMetrics(data) {
 
     updateCards(metrics);
     updateTimeSeries(ts, metrics);
-    updateECharts(metrics.status_codes, null);
+    updateECharts(metrics.status_codes, metrics.latency_buckets);
     updateClientTypeChart(metrics.bot_traffic);
     updateTable(metrics.top_paths);
 }
@@ -579,6 +613,7 @@ function aggregateVHosts(vhosts) {
         rps: 0,
         error_rate: 0,
         latency: { p50: 0, p95: 0, p99: 0, avg: 0 },
+        latency_buckets: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         status_codes: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0 },
         unique_visitors: 0,
         bot_traffic: { human: 0, good_bot: 0, bad_bot: 0 },
@@ -607,6 +642,12 @@ function aggregateVHosts(vhosts) {
             agg.bot_traffic.human += v.bot_traffic.human || 0;
             agg.bot_traffic.good_bot += v.bot_traffic.good_bot || 0;
             agg.bot_traffic.bad_bot += v.bot_traffic.bad_bot || 0;
+        }
+
+        if (v.latency_buckets) {
+            for (let i = 0; i < 10; i++) {
+                agg.latency_buckets[i] += (v.latency_buckets[i] || 0);
+            }
         }
 
         if (v.latency) {

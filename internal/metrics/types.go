@@ -82,6 +82,7 @@ type VHostMetrics struct {
 	ErrorRate      float64         `json:"error_rate"` // percentage of 4xx+5xx
 	StatusCodes    StatusCodes     `json:"status_codes"`
 	Latency        LatencyStats    `json:"latency"`
+	LatencyBuckets []int64         `json:"latency_buckets"`
 	Bandwidth      Bandwidth       `json:"bandwidth"`
 	UniqueVisitors int64           `json:"unique_visitors"`
 	BotTraffic     BotTrafficStats `json:"bot_traffic"`
@@ -124,6 +125,7 @@ type HistorySummary struct {
 	TotalBytesOut  int64           `json:"total_bytes_out"`
 	UniqueVisitors int64           `json:"unique_visitors"`
 	BotTraffic     BotTrafficStats `json:"bot_traffic,omitempty"`
+	LatencyBuckets []int64         `json:"latency_buckets,omitempty"`
 }
 
 // VHostHistory holds historical time series data for a single vhost.
@@ -143,13 +145,43 @@ type HistorySnapshot struct {
 
 // SecondBucket holds aggregated metrics for a single 1-second window.
 type SecondBucket struct {
-	Timestamp    time.Time
-	Requests     int64
-	StatusCodes  StatusCodes
-	BotTraffic   BotTrafficStats
-	TotalLatency float64 // sum of all request times (for averaging)
-	BytesIn      int64
-	BytesOut     int64
+	Timestamp      time.Time
+	Requests       int64
+	StatusCodes    StatusCodes
+	BotTraffic     BotTrafficStats
+	LatencyBuckets [10]int64
+	TotalLatency   float64 // sum of all request times (for averaging)
+	BytesIn        int64
+	BytesOut       int64
+}
+
+// LatencyBucketIndex maps a request duration (in seconds) to one of 10 histogram buckets:
+// 0: <10ms, 1: 10-20ms, 2: 20-50ms, 3: 50-100ms, 4: 100-200ms,
+// 5: 200-500ms, 6: 500ms-1s, 7: 1-2s, 8: 2-5s, 9: >5s.
+func LatencyBucketIndex(reqTime float64) int {
+	ms := reqTime * 1000.0
+	switch {
+	case ms < 10:
+		return 0
+	case ms < 20:
+		return 1
+	case ms < 50:
+		return 2
+	case ms < 100:
+		return 3
+	case ms < 200:
+		return 4
+	case ms < 500:
+		return 5
+	case ms < 1000:
+		return 6
+	case ms < 2000:
+		return 7
+	case ms < 5000:
+		return 8
+	default:
+		return 9
+	}
 }
 
 // VHostState holds the live, mutable state for a single virtual host.
